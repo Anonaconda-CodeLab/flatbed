@@ -1,0 +1,200 @@
+<!-- Copyright (C) 2026 Anonaconda Code Lab · SPDX-License-Identifier: GPL-3.0-or-later -->
+<main id="app">
+  <header class="bar">
+    <button class="brand" id="btnHome" aria-label="{{APP_NAME}}: start">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="8" fill="var(--accent)"/><path d="M10 6.5h8.5l4.5 4.5v14.5H10z" fill="none" stroke="var(--accent-fg)" stroke-width="2" stroke-linejoin="round"/><path d="M18.5 6.5V11H23" fill="none" stroke="var(--accent-fg)" stroke-width="2" stroke-linejoin="round"/><path d="M6.5 17h19" stroke="var(--accent)" stroke-width="5" stroke-linecap="round"/><path d="M6.5 17h19" stroke="var(--accent-fg)" stroke-width="2.1" stroke-linecap="round"/></svg>
+      <span>{{APP_NAME}}</span>
+    </button>
+    <button id="btnAbout" class="icon-btn" aria-label="About and help" title="About and help">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.6v.2"/></svg>
+    </button>
+  </header>
+
+  <!-- HOME: add pages, see them, make the PDF -->
+  <section id="scrHome" class="screen">
+    <div class="intro" id="intro">
+      <h1>Scan documents into clean, searchable PDFs</h1>
+      <p>Photograph a letter, form, receipt or ID. {{APP_NAME}} finds the page, straightens it, cleans it up, reads the text and makes a PDF, with no hidden details about you or your phone inside.</p>
+      <p class="trust"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>Nothing leaves this device. Nothing is uploaded, and nothing is kept after you close the app.</p>
+    </div>
+
+    <div class="add-row">
+      <button id="btnCamera" class="add-btn primary"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1.6-2.2h5.8L16.5 7h2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.8" r="3.4"/></svg><span id="btnCameraLbl">Take a photo</span></button>
+      <label class="add-btn" id="importLbl"><input type="file" id="fileInput" multiple accept="image/jpeg,image/png,image/webp,image/heic,.jpg,.jpeg,.png,.webp,.heic"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4.5" width="16" height="15" rx="2"/><circle cx="9" cy="9.5" r="1.6"/><path d="m20 15-4.5-4.5L7 19"/></svg><span>Import photos</span></label>
+      <input type="file" id="camInput" accept="image/*" capture="environment" hidden>
+    </div>
+
+    <div id="pagesWrap" hidden>
+      <div class="sec-head"><h2 id="pagesTitle">Pages</h2><span class="dev-meta">Tap a page to crop or adjust it</span></div>
+      <ol class="pages" id="pages"></ol>
+    </div>
+
+    <div class="actions" id="actions" hidden>
+      <button id="btnExport" class="btn-start"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/><path d="M9 14.5l2.2 2.2 4-4.4"/></svg><span id="btnExportLbl">Make PDF</span></button>
+      <p class="hint" id="exportHint"></p>
+    </div>
+
+    <div class="card uses" id="uses">
+      <h2 class="limits-title">Why scan with {{APP_NAME}}</h2>
+      <ul>
+        <li><b>Passport and ID copies.</b> For a visa, a rental or a school application. Most scanner apps send your pages to their servers; {{APP_NAME}} can't, so a copy of your passport is only ever on your phone.</li>
+        <li><b>Money and work.</b> Bank letters, tax forms, payslips and contracts are read and turned into a PDF right here, without an account.</li>
+        <li><b>Health.</b> Prescriptions, test results and insurance claims stay between you and whoever you choose to send them to.</li>
+        <li><b>Receipts and expense claims.</b> The PDF holds the receipt and nothing else: no phone model, no location, no date and time of the photo.</li>
+        <li><b>Documents for strangers.</b> Landlords, employers, agencies and online forms get the pages you meant to send, not details about you or your phone.</li>
+      </ul>
+    </div>
+
+    <div class="card limits" id="limits">
+      <h2 class="limits-title">Good to know</h2>
+      <ul>
+        <li><b>What's on the page stays on the page.</b> Names, numbers, signatures and photos on the document are in the scan. Cover anything you don't want to send before you take the photo.</li>
+        <li><b>Text recognition isn't perfect.</b> Clear, flat, well-lit print reads best. Handwriting isn't read. Check important text before relying on it.</li>
+        <li><b>Your phone's own copies.</b> Photos you import stay in your gallery as they were. {{APP_NAME}} never changes them.</li>
+      </ul>
+      <p class="as-is" id="asIs"><b>No guarantee.</b> {{APP_NAME}} is free software provided as it is, without any warranty. Check the PDF before you send anything important. You are responsible for what you share, and Anonaconda Code Lab accepts no liability for any loss or harm from using this app.</p>
+    </div>
+    {{THANKS}}
+  </section>
+
+  <!-- CAMERA (web app): live view with the page outlined -->
+  <section id="scrCamera" class="screen camera" hidden>
+    <div class="cam-stage" id="camStage">
+      <video id="camVideo" playsinline muted></video>
+      <canvas id="camOverlay"></canvas>
+      <p class="cam-tip" id="camTip">Hold the phone above the page, in good light.</p>
+    </div>
+    <div class="cam-bar">
+      <button id="btnCamCancel" class="btn">Done</button>
+      <button id="btnShutter" class="shutter" aria-label="Take the photo"><span></span></button>
+      <span class="cam-count" id="camCount" translate="no">0</span>
+    </div>
+  </section>
+
+  <!-- EDIT ONE PAGE: corners, then the look -->
+  <section id="scrEdit" class="screen" hidden>
+    <div class="edit-head">
+      <h1 id="editTitle">Page 1</h1>
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tabCrop" aria-selected="true">Crop</button>
+        <button role="tab" id="tabLook" aria-selected="false">Adjust</button>
+      </div>
+    </div>
+    <div id="cropView">
+      <div class="stage" id="cropStage" translate="no">
+        <img id="cropImg" alt="The photo" draggable="false">
+        <svg id="cropSvg" aria-hidden="true"><polygon id="cropPoly"/></svg>
+        <button class="handle" data-i="0" aria-label="Top-left corner"></button>
+        <button class="handle" data-i="1" aria-label="Top-right corner"></button>
+        <button class="handle" data-i="2" aria-label="Bottom-right corner"></button>
+        <button class="handle" data-i="3" aria-label="Bottom-left corner"></button>
+        <canvas id="loupe" width="120" height="120" hidden></canvas>
+      </div>
+      <p class="hint" id="cropHint">Drag the corners to the page's corners.</p>
+      <div class="acts-row center-row">
+        <button class="btn small" id="btnFind">Find the page</button>
+        <button class="btn small" id="btnWhole">Use the whole photo</button>
+      </div>
+    </div>
+    <div id="lookView" hidden>
+      <div class="stage look" translate="no"><img id="lookImg" alt="The cleaned-up page"><div class="busy-veil" id="lookBusy" hidden><i></i></div></div>
+      <div class="chips" id="modeChips" role="radiogroup" aria-label="Look">
+        <button class="chip-btn" data-mode="color" role="radio">Original</button>
+        <button class="chip-btn" data-mode="enhanced" role="radio">Enhanced</button>
+        <button class="chip-btn" data-mode="grey" role="radio">Grey</button>
+        <button class="chip-btn" data-mode="bw" role="radio">Black &amp; white</button>
+      </div>
+      <label class="slider" id="strengthRow"><span id="strengthLbl">Contrast</span><input type="range" id="strength" min="-1" max="1" step="0.1" value="0"></label>
+      <div class="acts-row center-row">
+        <button class="btn small" id="btnRotL" aria-label="Turn left">↺ Turn left</button>
+        <button class="btn small" id="btnRotR" aria-label="Turn right">Turn right ↻</button>
+      </div>
+      <label class="check"><input type="checkbox" id="optStraighten" checked><span><b>Straighten text lines</b><small>Levels the page if the lines of text are slightly tilted.</small></span></label>
+    </div>
+    <div class="acts-row edit-acts">
+      <button class="btn danger" id="btnDelete">Delete page</button>
+      <button class="btn primary" id="btnEditDone">Done</button>
+    </div>
+  </section>
+
+  <!-- MAKE THE PDF: privacy, options, result -->
+  <section id="scrExport" class="screen" hidden>
+    <div class="intro"><h1>Make the PDF</h1></div>
+
+    <div class="card privacy" id="privacyCard">
+      <div class="priv-head"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5.5c0 4.3 3 7.9 7 9.5 4-1.6 7-5.2 7-9.5V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg><div><b>Private by default</b><span class="dev-meta">What {{APP_NAME}} leaves out of this PDF</span></div></div>
+      <ul class="removed" id="removedList"></ul>
+    </div>
+
+    <div class="card" id="optCard">
+      <div class="opt">
+        <span class="opt-lbl">Page size</span>
+        <div class="chips" id="sizeChips" role="radiogroup" aria-label="Page size">
+          <button class="chip-btn" data-size="a4" role="radio">A4</button>
+          <button class="chip-btn" data-size="letter" role="radio">Letter</button>
+          <button class="chip-btn" data-size="fit" role="radio">Same as the scan</button>
+        </div>
+      </div>
+      <div class="opt">
+        <span class="opt-lbl">Text</span>
+        <label class="check"><input type="radio" name="textMode" id="optSearchable" value="text"><span><b>Searchable PDF</b><small>The text is read and added invisibly, so you can search the PDF and copy its text.</small></span></label>
+        <label class="check"><input type="radio" name="textMode" id="optImageOnly" value="image"><span><b>Image-only PDF (no text layer)</b><small>Just the pictures of the pages. Nobody can search or copy the text without reading it themselves.</small></span></label>
+      </div>
+      <div class="opt" id="langOpt">
+        <span class="opt-lbl">Language of the document <small class="dev-meta">(up to two)</small></span>
+        <div class="chips" id="langChips">{{LANG_CHIPS}}</div>
+        <p class="dev-meta" id="ocrNote" hidden></p>
+      </div>
+      <label class="opt"><span class="opt-lbl">File name</span><input type="text" id="fileName" class="text-in" value="scan.pdf" autocomplete="off" spellcheck="false" translate="no"></label>
+    </div>
+
+    <div class="actions" id="makeActions">
+      <button id="btnMake" class="btn-start"><span id="btnMakeLbl">Make PDF</span></button>
+      <p class="hint" id="makeHint" aria-live="polite"></p>
+    </div>
+
+    <div class="actions" id="doneActions" hidden>
+      <div class="done-hero"><h2 id="doneTitle">Your PDF is ready</h2><p id="doneSub" translate="no"></p></div>
+      <p class="checked" id="checkLine"></p>
+      <div class="acts-row center-row">
+        <button id="btnSave" class="btn primary">Save</button>
+        <button id="btnShare" class="btn" hidden>Share</button>
+      </div>
+      <div class="acts-row center-row" id="textActs" hidden>
+        <button id="btnCopyText" class="btn small">Copy text</button>
+        <button id="btnSaveText" class="btn small">Save text (.txt)</button>
+      </div>
+      <details class="ocr-text" id="ocrDetails" hidden><summary>Recognised text</summary><pre id="ocrText" translate="no"></pre></details>
+      {{DONATE}}
+      <div class="acts-row center-row"><button id="btnChangeOpts" class="btn">Change options</button><button id="btnNewScan" class="btn">New scan</button></div>
+    </div>
+    <div class="acts-row" id="exportBackRow"><button class="btn" id="btnExportBack">‹ Back to the pages</button></div>
+  </section>
+
+  <!-- ABOUT -->
+  <section id="scrAbout" class="screen" hidden>
+    <div class="intro"><h1>About and help</h1></div>
+    <div class="links">
+      <button class="row-btn" id="btnHelp"><span>User manual<small>Scanning tips, privacy, and what the options do</small></span><span class="chev">›</span></button>
+    </div>
+    {{ABOUT}}
+    <div class="acts-row"><button class="btn" id="btnAboutBack">Back</button></div>
+  </section>
+
+  <!-- MANUAL -->
+  <section id="scrHelp" class="screen" hidden>
+    <div class="acts-row"><button class="btn" id="btnHelpBack">‹ Back</button></div>
+    <article class="manual" id="manual">{{MANUAL}}</article>
+  </section>
+</main>
+
+<template id="tplPage">
+  <li class="page">
+    <button class="page-thumb" aria-label="Edit this page"><img alt="" draggable="false"><span class="busy-veil"><i></i></span></button>
+    <div class="page-bar">
+      <button class="icon-btn small" data-a="left" aria-label="Move earlier" title="Move earlier"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14.5 6-6 6 6 6"/></svg></button>
+      <span class="page-n" translate="no"></span>
+      <button class="icon-btn small" data-a="right" aria-label="Move later" title="Move later"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 6 6 6-6 6"/></svg></button>
+    </div>
+  </li>
+</template>

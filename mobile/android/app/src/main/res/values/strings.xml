@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Flatbed</string>
+    <string name="title_activity_main">Flatbed</string>
+    <string name="package_name">com.anonacondacodelab.flatbed</string>
+    <string name="custom_url_scheme">com.anonacondacodelab.flatbed</string>
+</resources>

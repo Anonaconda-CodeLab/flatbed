@@ -1,0 +1,34 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Tools the PDF tests use
+        run: sudo apt-get install -y --no-install-recommends poppler-utils
+      - run: npm test
+  # Commits in the studio's repositories are authored as Claude or with the studio's GitHub no-reply address, never
+  # with a personal email address. This flags any commit that isn't (GitHub's own merges are allowed).
+  authors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check commit author and committer addresses
+        run: |
+          ok='^(noreply@anthropic\.com|342939898\+Anonaconda-CodeLab@users\.noreply\.github\.com|noreply@github\.com)$'
+          bad=$(git log --format='%h %ae%n%h %ce' | while read h e; do echo "$e" | grep -Eq "$ok" || echo "$h"; done | sort -u)
+          if [ -n "$bad" ]; then echo "::error::Commits with another email address: $(echo $bad)"; exit 1; fi
+          echo "All commits use the approved addresses."

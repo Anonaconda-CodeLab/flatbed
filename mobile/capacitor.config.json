@@ -1,0 +1,10 @@
+{
+  "appId": "com.anonacondacodelab.flatbed",
+  "appName": "Flatbed",
+  "webDir": "../dist",
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": false,
+    "webContentsDebuggingEnabled": false
+  }
+}

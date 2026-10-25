@@ -1,0 +1,22 @@
+# Never commit your scans or photos: only the test fixtures, icons and screenshots are tracked
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.heic
+*.pdf
+*.zip
+!tests/fixtures/*
+!src/icons/*
+!docs/screenshots/*.png
+!mobile/android/app/src/main/res/**/*.png
+
+# Tooling
+node_modules/
+dist/
+.DS_Store
+Thumbs.db
+
+# Android signing keys never go in the repository
+*.jks
+*.keystore
