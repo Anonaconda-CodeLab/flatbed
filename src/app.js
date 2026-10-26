@@ -296,18 +296,35 @@
   }
   $('cropImg').addEventListener('load', placeHandles);
   window.addEventListener('resize', () => { if (state.edit && !$('cropView').hidden) placeHandles(); });
+  // Dragging: a finger anywhere near a corner (within about a fingertip and a half) moves the nearest corner, and the
+  // corner keeps its distance from the finger, so the finger never hides it. The photo itself ignores touches, so a
+  // long press can't open the browser's "open image / copy image" menu.
+  let drag = null;
+  const stage = $('cropStage');
+  stage.addEventListener('pointerdown', e => {
+    const d = state.edit; if (!d || e.button > 0) return;
+    const r = $('cropImg').getBoundingClientRect(), k = r.width / d.pg.w;
+    let best = -1, bestD = Infinity;
+    d.quad.forEach(([x, y], i) => { const dd = Math.hypot(r.left + x * k - e.clientX, r.top + y * k - e.clientY); if (dd < bestD) { bestD = dd; best = i; } });
+    if (best < 0 || bestD > 64) return;
+    e.preventDefault();
+    const [x, y] = d.quad[best];
+    drag = { i: best, id: e.pointerId, dx: r.left + x * k - e.clientX, dy: r.top + y * k - e.clientY };
+    stage.setPointerCapture(e.pointerId);
+    handles[best].focus({ preventScroll: true });
+    loupe(best);
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = state.edit, r = $('cropImg').getBoundingClientRect(), k = r.width / d.pg.w;
+    d.quad[drag.i] = [Math.max(0, Math.min(d.pg.w, (e.clientX + drag.dx - r.left) / k)), Math.max(0, Math.min(d.pg.h, (e.clientY + drag.dy - r.top) / k))];
+    d.skew = 'auto';
+    placeHandles(); loupe(drag.i);
+  });
+  const endDrag = e => { if (!drag || e.pointerId !== drag.id) return; drag = null; $('loupe').hidden = true; };
+  stage.addEventListener('pointerup', endDrag); stage.addEventListener('pointercancel', endDrag);
+  for (const el of [stage, document.querySelector('.stage.look')]) el.addEventListener('contextmenu', e => e.preventDefault());
   handles.forEach((h, i) => {
-    let drag = false;
-    h.addEventListener('pointerdown', e => { e.preventDefault(); drag = true; h.setPointerCapture(e.pointerId); loupe(i); });
-    h.addEventListener('pointermove', e => {
-      if (!drag) return;
-      const d = state.edit, r = $('cropImg').getBoundingClientRect(), k = r.width / d.pg.w;
-      d.quad[i] = [Math.max(0, Math.min(d.pg.w, (e.clientX - r.left) / k)), Math.max(0, Math.min(d.pg.h, (e.clientY - r.top) / k))];
-      d.skew = 'auto';
-      placeHandles(); loupe(i);
-    });
-    const end = () => { if (!drag) return; drag = false; $('loupe').hidden = true; };
-    h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
     // keyboard: arrow keys move the corner
     h.addEventListener('keydown', e => {
       const step = e.shiftKey ? 20 : 4, d = state.edit, k = geom().k, m = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
