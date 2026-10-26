@@ -223,12 +223,57 @@
       const score = area * sup;
       if (!best || score > best.score) best = { quad: oq, score, support: sup, area };
     }
+    if (!best) best = brightPage(g, e);
     if (!best) return null;
     // edges are found on the boundary itself: pull the corners in a little so no strip of table is left at the edges
     const cx = best.quad.reduce((a, p) => a + p[0], 0) / 4, cy = best.quad.reduce((a, p) => a + p[1], 0) / 4;
     // (the edge lines were thickened by a pixel to join them up, so the hull sits about 2 px outside the page)
     best.quad = best.quad.map(([x, y]) => { const t = 0.01 + 2.5 / Math.max(1, Math.hypot(cx - x, cy - y)); return [(x + (cx - x) * t) / scale, (y + (cy - y) * t) / scale]; });
     return best;
+  }
+  // Second try: the page as the largest bright area. Helps when the background is busy (a patterned mat or tablecloth)
+  // and its texture joins up with the page's outline in the edge map. Thin bright bridges to other bright things (the
+  // facing page of a book) are cut by shrinking the area a little before measuring it.
+  function brightPage(g, e) {
+    const { w, h } = g, b = blur(g, 2).data, hist = new Uint32Array(256);
+    for (let i = 0; i < b.length; i++) hist[Math.max(0, Math.min(255, Math.round(b[i])))]++;
+    const t = otsu(hist, b.length);
+    let mask = new Uint8Array(w * h); for (let i = 0; i < b.length; i++) if (b[i] > t) mask[i] = 1;
+    const r = Math.max(2, Math.round(Math.max(w, h) * 0.008));
+    const er = maxMin(Float32Array.from(mask), w, h, r, false);   // erode: min filter on the 0/1 mask
+    const seen = new Uint8Array(w * h);
+    let bestComp = null;
+    for (let i = 0; i < er.length; i++) {
+      if (!er[i] || seen[i]) continue;
+      const comp = [], stack = [i]; seen[i] = 1;
+      while (stack.length) {
+        const p = stack.pop(), x = p % w, y = (p - x) / w; comp.push(p);
+        if (x > 0 && er[p - 1] && !seen[p - 1]) { seen[p - 1] = 1; stack.push(p - 1); }
+        if (x < w - 1 && er[p + 1] && !seen[p + 1]) { seen[p + 1] = 1; stack.push(p + 1); }
+        if (y > 0 && er[p - w] && !seen[p - w]) { seen[p - w] = 1; stack.push(p - w); }
+        if (y < h - 1 && er[p + w] && !seen[p + w]) { seen[p + w] = 1; stack.push(p + w); }
+      }
+      if (!bestComp || comp.length > bestComp.length) bestComp = comp;
+    }
+    if (!bestComp) return null;
+    const frac = bestComp.length / (w * h);
+    if (frac < 0.1 || frac > 0.95) return null;   // no page, or nothing but page (no edge to find)
+    const inComp = new Uint8Array(w * h); for (const p of bestComp) inComp[p] = 1;
+    const pts = [];
+    for (const p of bestComp) {
+      const x = p % w, y = (p - x) / w;
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1 || !inComp[p - 1] || !inComp[p + 1] || !inComp[p - w] || !inComp[p + w]) pts.push([x, y]);
+    }
+    const q = maxQuad(hull(pts)); if (!q) return null;
+    // the area was shrunk by r: grow the corners back out from the centre
+    let oq = order(q);
+    const cx = oq.reduce((a, p) => a + p[0], 0) / 4, cy = oq.reduce((a, p) => a + p[1], 0) / 4;
+    oq = oq.map(([x, y]) => { const d = Math.hypot(x - cx, y - cy) || 1, k = (d + r * 1.4) / d; return [Math.max(0, Math.min(w - 1, cx + (x - cx) * k)), Math.max(0, Math.min(h - 1, cy + (y - cy) * k))]; });
+    const area = polyArea(oq) / (w * h);
+    if (area < 0.12 || !angleOk(oq)) return null;
+    const sup = support(oq, e, w, h);
+    if (sup < 0.4) return null;
+    return { quad: oq, score: area * sup, support: sup, area };
   }
   const defaultQuad = (w, h) => [[0, 0], [w, 0], [w, h], [0, h]];   // no page found: keep the whole picture
 
@@ -358,22 +403,64 @@
   // Made on a smaller copy (about 800 px) with a morphological "closing": first the brightest value nearby (text is
   // darker than paper, so it drops out), then the darkest value nearby. The second step puts the edge of a sharp
   // shadow (a hand, the phone) back where it really is, instead of smearing it into a band. A light blur follows.
-  function maxMin(a, w, h, r, takeMax) {   // square max or min filter, done as two 1-D passes
+  // square max or min filter, as two 1-D passes; each pass uses the van Herk / Gil-Werman method, which costs the same
+  // whatever the radius (about three comparisons a pixel)
+  function maxMin(a, w, h, r, takeMax) {
+    const k = 2 * r + 1, pick = takeMax ? Math.max : Math.min, fillV = takeMax ? -Infinity : Infinity;
+    const run = (get, set, n) => {
+      const len = n + 2 * r, padded = Math.ceil(len / k) * k;
+      const src = new Float32Array(padded).fill(fillV), g = new Float32Array(padded), hh = new Float32Array(padded);
+      for (let i = 0; i < n; i++) src[i + r] = get(i);
+      for (let b = 0; b < padded; b += k) {
+        g[b] = src[b]; for (let i = b + 1; i < b + k; i++) g[i] = pick(g[i - 1], src[i]);
+        hh[b + k - 1] = src[b + k - 1]; for (let i = b + k - 2; i >= b; i--) hh[i] = pick(hh[i + 1], src[i]);
+      }
+      for (let i = 0; i < n; i++) set(i, pick(hh[i], g[i + k - 1]));
+    };
     const t = new Float32Array(w * h), out = new Float32Array(w * h);
-    const pick = takeMax ? (p, q) => (p > q ? p : q) : (p, q) => (p < q ? p : q);
-    for (let y = 0; y < h; y++) { const o = y * w; for (let x = 0; x < w; x++) { let m = a[o + x]; for (let k = Math.max(0, x - r), e = Math.min(w - 1, x + r); k <= e; k++) m = pick(m, a[o + k]); t[o + x] = m; } }
-    for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) { let m = t[y * w + x]; for (let k = Math.max(0, y - r), e = Math.min(h - 1, y + r); k <= e; k++) m = pick(m, t[k * w + x]); out[y * w + x] = m; }
+    for (let y = 0; y < h; y++) { const o = y * w; run(i => a[o + i], (i, v) => { t[o + i] = v; }, w); }
+    for (let x = 0; x < w; x++) run(i => t[i * w + x], (i, v) => { out[i * w + x] = v; }, h);
     return out;
   }
-  // A large dark area is either a shadow or something printed (a passport photo, a logo, a black box). Shadows fall
-  // across the page from outside it (the hand or phone is outside), so they reach the edge of the picture; printed
-  // things sit inside the page with paper all round. Dark areas that don't reach the edge are therefore treated as
+
+  // A large dark area is either a shadow or something printed (a passport photo, a logo, a black box). Printed things
+  // sit inside the page with paper all round and have crisp edges. Shadows fade out softly, or fall across the page
+  // from outside it and reach the edge of the picture. Dark areas inside the picture with crisp edges are treated as
   // content: the paper brightness there is filled in from the paper around them, so they keep their own tones.
-  function keepContent(m, w, h) {
+  function keepContent(m, w, h, extra) {   // extra: colour-channel maps that get the same filling
     const sorted = Float32Array.from(m).sort(), paper = sorted[Math.floor(sorted.length * 0.9)];
     const dark = new Uint8Array(w * h);
     for (let i = 0; i < m.length; i++) if (m[i] < paper * 0.72) dark[i] = 1;
     const seen = new Uint8Array(w * h), fill = new Uint8Array(w * h), stack = [], comp = [];
+    // Printed things have crisp edges; a shadow inside the page (a hand held over it) fades out over a wide band. The
+    // brightness range just around the area's outline, compared with how much darker the area is than the paper,
+    // tells the two apart: close to 1 for a crisp edge, small for a soft one.
+    const sharpEdged = list => {
+      let sum = 0; for (const p of list) sum += m[p];
+      const drop = paper - sum / list.length; if (drop <= 0) return false;
+      const ratios = [];
+      for (const p of list) {
+        const x = p % w, y = (p - x) / w;
+        if (!((x > 0 && !dark[p - 1]) || (x < w - 1 && !dark[p + 1]) || (y > 0 && !dark[p - w]) || (y < h - 1 && !dark[p + w]))) continue;
+        let lo = Infinity, hi = -Infinity;
+        for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+          const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          const v = m[yy * w + xx]; if (v < lo) lo = v; if (v > hi) hi = v;
+        }
+        ratios.push((hi - lo) / drop);
+      }
+      if (!ratios.length) return false;
+      ratios.sort((a, b) => a - b);
+      return ratios[ratios.length >> 1] > 0.5;
+    };
+    // A shadow is an even, moderate darkening, even when its edge is crisp (a phone held close to the page). Printed
+    // things are either very dark (a black logo or box) or full of different tones (a photo).
+    const looksPrinted = list => {
+      if (!sharpEdged(list)) return false;
+      let sum = 0, sq = 0; for (const p of list) { sum += m[p]; sq += m[p] * m[p]; }
+      const mean = sum / list.length, sd = Math.sqrt(Math.max(0, sq / list.length - mean * mean));
+      return mean < paper * 0.35 || sd / mean > 0.15;
+    };
     for (let i = 0; i < dark.length; i++) {
       if (!dark[i] || seen[i]) continue;
       let edge = false; comp.length = 0; stack.push(i); seen[i] = 1;
@@ -385,7 +472,7 @@
         if (y > 0 && dark[p - w] && !seen[p - w]) { seen[p - w] = 1; stack.push(p - w); }
         if (y < h - 1 && dark[p + w] && !seen[p + w]) { seen[p + w] = 1; stack.push(p + w); }
       }
-      if (!edge) for (const p of comp) fill[p] = 1;
+      if (!edge && looksPrinted(comp)) for (const p of comp) fill[p] = 1;
     }
     // widen by two pixels (the edge of the area blends into the paper), then fill from the outside in
     for (let pass = 0; pass < 2; pass++) {
@@ -396,26 +483,44 @@
       }
       fill.set(grow);
     }
-    let todo = [];
-    for (let i = 0; i < fill.length; i++) if (fill[i]) todo.push(i);
-    while (todo.length) {
-      const next = [], set = [];
-      for (const p of todo) {
-        const x = p % w, y = (p - x) / w; let sum = 0, n = 0;
-        if (x > 0 && !fill[p - 1]) { sum += m[p - 1]; n++; }
-        if (x < w - 1 && !fill[p + 1]) { sum += m[p + 1]; n++; }
-        if (y > 0 && !fill[p - w]) { sum += m[p - w]; n++; }
-        if (y < h - 1 && !fill[p + w]) { sum += m[p + w]; n++; }
-        if (n) set.push([p, sum / n]); else next.push(p);
+    const fillIn = (a, mask, level) => {
+      let todo = [];
+      for (let i = 0; i < mask.length; i++) if (mask[i]) todo.push(i);
+      while (todo.length) {
+        const next = [], set = [];
+        for (const p of todo) {
+          const x = p % w, y = (p - x) / w; let sum = 0, n = 0;
+          if (x > 0 && !mask[p - 1]) { sum += a[p - 1]; n++; }
+          if (x < w - 1 && !mask[p + 1]) { sum += a[p + 1]; n++; }
+          if (y > 0 && !mask[p - w]) { sum += a[p - w]; n++; }
+          if (y < h - 1 && !mask[p + w]) { sum += a[p + w]; n++; }
+          if (n) set.push([p, sum / n]); else next.push(p);
+        }
+        if (!set.length) { for (const p of next) a[p] = level; break; }
+        for (const [p, v] of set) { a[p] = v; mask[p] = 0; }
+        todo = next;
       }
-      if (!set.length) { for (const p of next) m[p] = paper; break; }
-      for (const [p, v] of set) { m[p] = v; fill[p] = 0; }
-      todo = next;
-    }
+    };
+    for (const a of extra || []) { const srt = Float32Array.from(a).sort(); fillIn(a, fill.slice(), srt[Math.floor(srt.length * 0.9)]); }
+    fillIn(m, fill, paper);
     return m;
   }
+  // the same, one map per colour channel: light of a different colour in the shadow (daylight there, a warm lamp
+  // elsewhere) is corrected too, not only its brightness
+  // the map's size follows the picture's: about a quarter of it, at most 800 px (enough for a 3000 px page), so
+  // small previews are quick and the PDF gets the full detail
+  const mapSide = img => Math.max(240, Math.min(800, Math.round(Math.max(img.w, img.h) * 0.27)));
+  function paperMapsRGB(img) {
+    const small = shrink(img, mapSide(img)), { w, h } = small, n = w * h, r = Math.max(3, Math.round(Math.max(w, h) * 0.012));
+    const ch = [0, 1, 2].map(c => { const a = new Float32Array(n); for (let i = 0; i < n; i++) a[i] = small.data[i * 4 + c]; return a; });
+    const grey = new Float32Array(n); for (let i = 0; i < n; i++) grey[i] = (ch[0][i] * 77 + ch[1][i] * 150 + ch[2][i] * 29) / 256;
+    const close = a => maxMin(maxMin(a, w, h, r, true), w, h, r, false);
+    const cg = close(grey), cc = ch.map(close);
+    keepContent(cg, w, h, cc);
+    return cc.map(a => blur({ w, h, data: a }, 1));
+  }
   function paperMap(g) {
-    const small = shrink(g, 800), { w, h } = small;
+    const small = shrink(g, mapSide(g)), { w, h } = small;
     const r = Math.max(3, Math.round(Math.max(w, h) * 0.012));   // wider than a line of ordinary text
     const closed = maxMin(maxMin(Float32Array.from(small.data), w, h, r, true), w, h, r, false);
     return blur({ w, h, data: keepContent(closed, w, h) }, 1);
@@ -442,20 +547,22 @@
     strength = clamp(+strength || 0, -1, 1);
     const src = isGray(img) ? grayToRgba(img) : img, { w, h, data } = src;
     if (mode === 'color' || !mode) return src;
-    const g = toGray(src), map = paperMap(g), row = new Float32Array(w), out = new Uint8ClampedArray(w * h * 4);
+    const out = new Uint8ClampedArray(w * h * 4);
     if (mode === 'enhanced') {
-      // white paper, deeper ink, colours kept
+      // white paper, deeper ink, colours kept; each colour channel has its own paper map
       const black = 40 + strength * 30, gain = 255 / (255 - black);
+      const maps = paperMapsRGB(src), rows = [new Float32Array(w), new Float32Array(w), new Float32Array(w)];
       for (let y = 0; y < h; y++) {
-        paperRow(map, y, w, h, row);
+        for (let c = 0; c < 3; c++) paperRow(maps[c], y, w, h, rows[c]);
         for (let x = 0; x < w; x++) {
-          const o = (y * w + x) * 4, k = 255 / row[x];
-          for (let c = 0; c < 3; c++) { const v = data[o + c] * k; out[o + c] = (v - black) * gain; }
+          const o = (y * w + x) * 4;
+          for (let c = 0; c < 3; c++) { const v = data[o + c] * 255 / rows[c][x]; out[o + c] = (v - black) * gain; }
           out[o + 3] = 255;
         }
       }
       return { w, h, data: out };
     }
+    const g = toGray(src), map = paperMap(g), row = new Float32Array(w);
     if (mode === 'grey') {
       const black = 30 + strength * 30, gain = 255 / (255 - black);
       for (let y = 0; y < h; y++) {
@@ -483,7 +590,7 @@
     return { w, h, stride, bits };
   }
 
-  const api = { toGray, shrink, detectPage, defaultQuad, outputSize, warp, homography, estimateSkew, rotate, rotate90, filter, flattenGray, bilevel, order };
+  const api = { maxMin, paperMap, toGray, shrink, detectPage, defaultQuad, outputSize, warp, homography, estimateSkew, rotate, rotate90, filter, flattenGray, bilevel, order };
   root.FlatbedScan = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

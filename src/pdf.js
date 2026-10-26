@@ -38,6 +38,28 @@
     return ctx.register(ctx.obj({ Type: 'Font', Subtype: 'Type0', BaseFont: 'GlyphLessFont', Encoding: 'Identity-H', DescendantFonts: [cid], ToUnicode: toUnicode }));
   }
 
+  // A JPEG made by the browser carries extra blocks: Chrome adds a colour profile labelled "Google Inc. 2016", which
+  // tells anyone looking that the PDF was made in a Chrome-based browser. Only the picture itself is needed (sRGB is
+  // the default anyway), so every APP1-APP15 and comment block is cut out; the picture data is unchanged.
+  function bareJpeg(b) {
+    if (b[0] !== 0xff || b[1] !== 0xd8) return b;
+    const parts = [b.subarray(0, 2)];
+    let i = 2;
+    while (i + 4 <= b.length && b[i] === 0xff) {
+      const m = b[i + 1];
+      if (m === 0xda) break;   // start of the picture data: keep everything from here
+      const len = (b[i + 2] << 8) | b[i + 3];
+      if (len < 2 || i + 2 + len > b.length) return b;   // not as expected: leave the file alone
+      const drop = (m >= 0xe1 && m <= 0xef) || m === 0xfe;
+      if (!drop) parts.push(b.subarray(i, i + 2 + len));
+      i += 2 + len;
+    }
+    parts.push(b.subarray(i));
+    const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0));
+    let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  }
+
   const n = v => (Math.round(v * 100) / 100).toString();
   function utf16hex(s) {
     let h = '';
@@ -85,7 +107,7 @@
       const scale = Math.min(pw / p.w, ph / p.h), iw = p.w * scale, ih = p.h * scale, ox = (pw - iw) / 2, oy = (ph - ih) / 2;
       const page = doc.addPage([pw, ph]);
       if (p.image.type === 'jpeg') {
-        const img = await doc.embedJpg(p.image.bytes);
+        const img = await doc.embedJpg(bareJpeg(p.image.bytes));
         page.drawImage(img, { x: ox, y: oy, width: iw, height: ih });
       } else {
         // black and white: 1 bit a pixel, compressed; far smaller than JPEG and perfectly sharp
@@ -102,7 +124,7 @@
     return doc.save({ useObjectStreams: true, addDefaultPage: false });
   }
 
-  const api = { build, utf16hex, SIZES };
+  const api = { build, utf16hex, bareJpeg, SIZES };
   root.FlatbedPdf = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

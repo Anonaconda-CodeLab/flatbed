@@ -122,3 +122,15 @@ test('page sizes', async () => {
     if (size === 'fit') assert.ok(Math.abs(pg.getHeight() - 841.89 * pageH / pageW) < 0.1);
   }
 });
+
+test('page pictures carry no colour profile or other extra blocks (Chrome labels its profile "Google Inc.")', async () => {
+  // a JPEG with an ICC profile, EXIF and a comment, like one made by a browser or a camera
+  const seg = (m, body) => { const b = Buffer.from(body); return Buffer.concat([Buffer.from([0xff, m, (b.length + 2) >> 8, (b.length + 2) & 255]), b]); };
+  const j = Buffer.from(jpeg), withJunk = Buffer.concat([j.subarray(0, 2), seg(0xe2, 'ICC_PROFILE\0Google Inc. 2016'), seg(0xe1, 'Exif\0\0secret'), seg(0xfe, 'made by me'), j.subarray(2)]);
+  const bare = P.bareJpeg(new Uint8Array(withJunk));
+  const t = Buffer.from(bare).toString('latin1');
+  assert.ok(!/ICC_PROFILE|Google|Exif|made by me/.test(t));
+  assert.ok(bare.length >= jpeg.length - 64 && bare.length <= jpeg.length, 'only the extra blocks removed');
+  const raw = await P.build({ PDFLib, font, size: 'a4', text: false, pages: [{ w: pageW, h: pageH, image: { type: 'jpeg', bytes: new Uint8Array(withJunk) } }] });
+  assert.ok(!/ICC_PROFILE|Google|Exif|made by me/.test(Buffer.from(raw).toString('latin1')));
+});
