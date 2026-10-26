@@ -94,3 +94,25 @@ test('turning by 90° steps', () => {
   assert.deepEqual([...r.data].filter((_, i) => i % 4 === 0), [4, 1, 5, 2, 6, 3]);
   assert.deepEqual([...S.rotate90(img, 4).data], [...img.data]);
 });
+
+test('a sharp shadow (a hand or the phone) is removed without wiping out the text under it', () => {
+  const w = 620, h = 877, data = new Uint8ClampedArray(w * h * 4);
+  const inShadow = (x, y) => x + 0.6 * y > 750;
+  const isText = (x, y) => y > 140 && y < 760 && ((y - 140) % 29) < 9 && x > 55 && x < 560 && ((x * 7 + Math.floor(y / 29) * 13) % 31) > 5;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let v = isText(x, y) ? 25 : 240;
+    v *= 0.75 + 0.25 * (1 - y / h);   // soft fall-off as well
+    if (inShadow(x, y)) v *= 0.45;
+    const o = (y * w + x) * 4; data[o] = data[o + 1] = data[o + 2] = v; data[o + 3] = 255;
+  }
+  const b = S.bilevel({ w, h, data }, 0);
+  const white = (x, y) => (b.bits[y * b.stride + (x >> 3)] >> (7 - (x & 7))) & 1;
+  let paper = 0, paperWhite = 0, ink = 0, inkBlack = 0;
+  for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) {
+    if (!inShadow(x, y) || inShadow(x - 8, y - 8) === false) continue;   // well inside the shadow, away from its edge
+    if (isText(x, y)) { ink++; inkBlack += 1 - white(x, y); }
+    else if (!isText(x - 2, y) && !isText(x + 2, y) && !isText(x, y - 2) && !isText(x, y + 2)) { paper++; paperWhite += white(x, y); }
+  }
+  assert.ok(paperWhite / paper > 0.97, `paper in the shadow is white (${(paperWhite / paper).toFixed(3)})`);
+  assert.ok(inkBlack / ink > 0.9, `text in the shadow stays black (${(inkBlack / ink).toFixed(3)})`);
+});

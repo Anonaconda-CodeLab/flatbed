@@ -354,16 +354,71 @@
   }
 
   // ---------- clean-up ----------
-  // Paper brightness map: the page's light level everywhere, found by taking the brightest nearby pixels (text is
-  // darker than paper, so it drops out) on a small copy and smoothing it. Dividing by it removes shadows and uneven light.
-  function paperMap(g) {
-    const small = shrink(g, 96), { w, h } = small, d = small.data, mx = new Float32Array(w * h), r = 3;
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      let m = 0;
-      for (let dy = -r; dy <= r; dy++) { const yy = y + dy; if (yy < 0 || yy >= h) continue; for (let dx = -r; dx <= r; dx++) { const xx = x + dx; if (xx < 0 || xx >= w) continue; const v = d[yy * w + xx]; if (v > m) m = v; } }
-      mx[y * w + x] = m;
+  // Paper brightness map: how bright the paper is at every point, so dividing by it removes shadows and uneven light.
+  // Made on a smaller copy (about 800 px) with a morphological "closing": first the brightest value nearby (text is
+  // darker than paper, so it drops out), then the darkest value nearby. The second step puts the edge of a sharp
+  // shadow (a hand, the phone) back where it really is, instead of smearing it into a band. A light blur follows.
+  function maxMin(a, w, h, r, takeMax) {   // square max or min filter, done as two 1-D passes
+    const t = new Float32Array(w * h), out = new Float32Array(w * h);
+    const pick = takeMax ? (p, q) => (p > q ? p : q) : (p, q) => (p < q ? p : q);
+    for (let y = 0; y < h; y++) { const o = y * w; for (let x = 0; x < w; x++) { let m = a[o + x]; for (let k = Math.max(0, x - r), e = Math.min(w - 1, x + r); k <= e; k++) m = pick(m, a[o + k]); t[o + x] = m; } }
+    for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) { let m = t[y * w + x]; for (let k = Math.max(0, y - r), e = Math.min(h - 1, y + r); k <= e; k++) m = pick(m, t[k * w + x]); out[y * w + x] = m; }
+    return out;
+  }
+  // A large dark area is either a shadow or something printed (a passport photo, a logo, a black box). Shadows fall
+  // across the page from outside it (the hand or phone is outside), so they reach the edge of the picture; printed
+  // things sit inside the page with paper all round. Dark areas that don't reach the edge are therefore treated as
+  // content: the paper brightness there is filled in from the paper around them, so they keep their own tones.
+  function keepContent(m, w, h) {
+    const sorted = Float32Array.from(m).sort(), paper = sorted[Math.floor(sorted.length * 0.9)];
+    const dark = new Uint8Array(w * h);
+    for (let i = 0; i < m.length; i++) if (m[i] < paper * 0.72) dark[i] = 1;
+    const seen = new Uint8Array(w * h), fill = new Uint8Array(w * h), stack = [], comp = [];
+    for (let i = 0; i < dark.length; i++) {
+      if (!dark[i] || seen[i]) continue;
+      let edge = false; comp.length = 0; stack.push(i); seen[i] = 1;
+      while (stack.length) {
+        const p = stack.pop(), x = p % w, y = (p - x) / w; comp.push(p);
+        if (x === 0 || y === 0 || x === w - 1 || y === h - 1) edge = true;
+        if (x > 0 && dark[p - 1] && !seen[p - 1]) { seen[p - 1] = 1; stack.push(p - 1); }
+        if (x < w - 1 && dark[p + 1] && !seen[p + 1]) { seen[p + 1] = 1; stack.push(p + 1); }
+        if (y > 0 && dark[p - w] && !seen[p - w]) { seen[p - w] = 1; stack.push(p - w); }
+        if (y < h - 1 && dark[p + w] && !seen[p + w]) { seen[p + w] = 1; stack.push(p + w); }
+      }
+      if (!edge) for (const p of comp) fill[p] = 1;
     }
-    return blur({ w, h, data: mx }, 3);
+    // widen by two pixels (the edge of the area blends into the paper), then fill from the outside in
+    for (let pass = 0; pass < 2; pass++) {
+      const grow = fill.slice();
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const p = y * w + x; if (fill[p]) continue;
+        if ((x > 0 && fill[p - 1]) || (x < w - 1 && fill[p + 1]) || (y > 0 && fill[p - w]) || (y < h - 1 && fill[p + w])) grow[p] = 1;
+      }
+      fill.set(grow);
+    }
+    let todo = [];
+    for (let i = 0; i < fill.length; i++) if (fill[i]) todo.push(i);
+    while (todo.length) {
+      const next = [], set = [];
+      for (const p of todo) {
+        const x = p % w, y = (p - x) / w; let sum = 0, n = 0;
+        if (x > 0 && !fill[p - 1]) { sum += m[p - 1]; n++; }
+        if (x < w - 1 && !fill[p + 1]) { sum += m[p + 1]; n++; }
+        if (y > 0 && !fill[p - w]) { sum += m[p - w]; n++; }
+        if (y < h - 1 && !fill[p + w]) { sum += m[p + w]; n++; }
+        if (n) set.push([p, sum / n]); else next.push(p);
+      }
+      if (!set.length) { for (const p of next) m[p] = paper; break; }
+      for (const [p, v] of set) { m[p] = v; fill[p] = 0; }
+      todo = next;
+    }
+    return m;
+  }
+  function paperMap(g) {
+    const small = shrink(g, 800), { w, h } = small;
+    const r = Math.max(3, Math.round(Math.max(w, h) * 0.012));   // wider than a line of ordinary text
+    const closed = maxMin(maxMin(Float32Array.from(small.data), w, h, r, true), w, h, r, false);
+    return blur({ w, h, data: keepContent(closed, w, h) }, 1);
   }
   function sampleMap(map, x, y, W, H) {   // bilinear lookup of the small map at full-size coordinates
     const fx = clamp((x + 0.5) * map.w / W - 0.5, 0, map.w - 1), fy = clamp((y + 0.5) * map.h / H - 0.5, 0, map.h - 1);
