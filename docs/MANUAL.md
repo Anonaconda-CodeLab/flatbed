@@ -36,6 +36,11 @@ app.
 3. Tap a page to adjust it (see below). Use the arrows under a page to change the order.
 4. Tap **Make PDF**, choose the options, and tap **Make PDF** again.
 5. **Save** or **Share** the PDF. You can also copy the recognised text, or save it as a plain text file.
+   In Chrome or Edge on a computer, **Save** lets you choose the folder and the name. Other browsers save to their
+   Downloads folder, but most can ask each time instead: in Chrome on Android, turn on **Ask where to save files** in
+   Chrome's settings, under **Downloads**; in Firefox on a computer, choose **Always ask you where to save files** in
+   Settings, under **Files and Applications**. Firefox on Android always uses the Downloads folder; **Share** sends
+   the PDF straight to another app instead.[[android]] In the Android app, Save always lets you choose.[[/android]]
 
 ### Taking a good photo
 

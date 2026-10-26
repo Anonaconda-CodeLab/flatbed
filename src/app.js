@@ -508,6 +508,7 @@
       $('checkLine').textContent = !left ? '' : left.length ? `Please check: still found ${left.map(f => f.label).join(', ')}.` : '✓ Checked: no hidden data in the PDF.';
       $('checkLine').classList.toggle('warn', !!(left && left.length));
       $('btnShare').hidden = !canShare();
+      $('saveHint').textContent = NATIVE || canPickFolder() ? 'Save lets you choose the folder and name.' : 'Save puts the PDF in your browser\'s Downloads folder. Most browsers can ask where to save instead: the manual (How to scan) explains how.';
       $('textActs').hidden = $('ocrDetails').hidden = !(text && state.result.text);
       $('ocrText').textContent = state.result.text;
       $('makeActions').hidden = true; $('optCard').hidden = true; $('doneActions').hidden = false;
@@ -531,9 +532,24 @@
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
+  // Saving: the Android app uses Android's own "save as" screen. Browsers that let a page open a "save as" dialog
+  // (Chrome and Edge on a computer) use it, so the folder and name can be chosen; it starts in the folder used last
+  // time. Other browsers (Chrome on Android, Firefox, Safari) save to their download folder.
+  const canPickFolder = () => !NATIVE && typeof window.showSaveFilePicker === 'function';
+  const TYPES = { 'application/pdf': { description: 'PDF document', accept: { 'application/pdf': ['.pdf'] } }, 'text/plain': { description: 'Text file', accept: { 'text/plain': ['.txt'] } } };
   async function saveAs(name, bytes, mime) {
     try {
-      if (NATIVE) { const r = await FlatbedNative.saveFile(name, bytes, mime); if (r.saved) toast('Saved.'); }
+      if (NATIVE) { const r = await FlatbedNative.saveFile(name, bytes, mime); if (!r.saved) return; toast('Saved.'); }
+      else if (canPickFolder()) {
+        let handle;
+        try { handle = await window.showSaveFilePicker({ suggestedName: name, id: 'flatbed-save', startIn: 'documents', types: TYPES[mime] ? [TYPES[mime]] : undefined }); }
+        catch (e) { if (e && e.name === 'AbortError') return; handle = null; }   // cancelled: nothing saved
+        if (handle) {
+          const w = await handle.createWritable();
+          await w.write(new Blob([bytes], { type: mime })); await w.close();
+          toast(`Saved as ${handle.name}.`);
+        } else download(name, bytes, mime);   // the dialog couldn't open: save the usual way
+      }
       else download(name, bytes, mime);   // browsers save to their usual download folder
       if (state.result) state.result.saved = true;
     } catch (e) { if (!e || e.name !== 'AbortError') toast('Could not save: ' + (e && e.message || e)); }
