@@ -183,6 +183,7 @@ writeFileSync(join(root, 'dist', '_headers'), `/*
   X-Content-Type-Options: nosniff
   Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), interest-cohort=()
   Cross-Origin-Opener-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000
 
 # the project's own *.pages.dev address is a duplicate of the real one: keep it out of search engines
 https://:project.pages.dev/*

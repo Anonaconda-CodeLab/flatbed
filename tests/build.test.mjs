@@ -76,6 +76,7 @@ test('Cloudflare Pages headers: no framing, no connections, camera only for this
   assert.match(h, /^\/\*\n/);
   assert.match(h, /Content-Security-Policy: [^\n]*connect-src 'none'[^\n]*frame-ancestors 'none'/);
   assert.match(h, /Referrer-Policy: no-referrer/);
+  assert.match(h, /Strict-Transport-Security: max-age=31536000\n/);
   assert.match(h, /Permissions-Policy: camera=\(self\), microphone=\(\)/);
   assert.match(h, /https:\/\/:project\.pages\.dev\/\*\n  X-Robots-Tag: noindex/);
   assert.ok(!existsSync(new URL('../netlify.toml', import.meta.url)), 'no Netlify settings left');
