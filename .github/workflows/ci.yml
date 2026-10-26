@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Tools the PDF tests use
-        run: sudo apt-get install -y --no-install-recommends poppler-utils
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends poppler-utils
       - run: npm test
   # Commits in the studio's repositories are authored as Claude or with the studio's GitHub no-reply address, never
   # with a personal email address. This flags any commit that isn't (GitHub's own merges are allowed).
