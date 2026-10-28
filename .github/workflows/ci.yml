@@ -1,4 +1,5 @@
 name: CI
+# Actions are pinned to exact commits (the comment names the release), so a moved tag can't change what runs.
 on:
   push:
   pull_request:
@@ -11,8 +12,10 @@ jobs:
       matrix:
         node: [20, 22]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444   # v5.0.0
         with:
           node-version: ${{ matrix.node }}
       - name: Tools the PDF tests use
@@ -23,9 +26,10 @@ jobs:
   authors:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Check commit author and committer addresses
         run: |
           ok='^(noreply@anthropic\.com|342939898\+Anonaconda-CodeLab@users\.noreply\.github\.com|noreply@github\.com)$'

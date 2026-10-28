@@ -21,8 +21,8 @@ const PROJECT = {
   certSha256: '4D:6C:EA:58:94:C0:D7:D8:E9:AB:74:BC:3A:1E:9C:A5:47:BD:40:A2:02:B6:70:99:AF:66:5B:29:7F:7A:8F:47',
   kofi: 'anonacondacodelab', // Ko-fi username; leave empty to hide the support link
   // Android app announced on the website: the install page (dist/android.html) and the manual's [[android]] parts.
-  // Off until the Android app is launched; the APK itself is built either way.
-  androidPage: false,
+  // On since the launch (1.0.0); false hides them again. The APK itself is built either way.
+  androidPage: true,
   // text-recognition languages bundled with the app (src/lang/<code>.traineddata.gz), in the order shown
   languages: [['eng', 'English'], ['fra', 'Français'], ['spa', 'Español'], ['deu', 'Deutsch'], ['tha', 'ไทย']]
 };
@@ -44,10 +44,10 @@ const about = `<div class="card" id="aboutCard">
 
 // gentle donation card after a PDF is made, shown at a few usage milestones only (see app.js); same as the studio's other apps
 const donate = kofi ? `<div id="donateCard" class="card donate" hidden>
-      <p><b>Enjoying ${APP.APP_NAME}?</b><br><span class="dev-meta">You've made <span id="donateN">20</span> PDFs. The app is free, with no ads or tracking. If it's useful to you, a coffee helps keep it going.</span></p>
+      <p><b>Enjoying ${APP.APP_NAME}?</b><br><span class="dev-meta">You've made <span id="donateN">20</span> PDFs. No ads, no tracking. If you find this app useful, please consider making a small donation to help fund development. Thank you!</span></p>
       <div class="acts"><a id="btnDonate" class="btn coffee" href="${kofi}" rel="noopener noreferrer">☕ Support on Ko-fi</a><button id="btnDonateLater" class="btn">Not now</button></div>
     </div>` : '';
-const thanks = kofi ? `<p class="thanks">If you find this app useful, please consider <a href="${kofi}" rel="noopener noreferrer">a small donation</a>. It's made by one person, with no ads or tracking. Thank you!</p>` : '';
+const thanks = kofi ? `<p class="thanks">No ads, no tracking. If you find this app useful, please consider <a href="${kofi}" rel="noopener noreferrer">making a small donation</a> to help fund development. Thank you!</p>` : '';
 
 const src = f => readFileSync(join(root, 'src', f), 'utf8');
 const bin = f => readFileSync(join(root, 'src', f));

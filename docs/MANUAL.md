@@ -52,6 +52,9 @@ app.
 
 In the web app, the camera view outlines the page in orange when it has found it.
 
+Photos can be up to 60 MB and 100 megapixels each (a phone camera's usual photos are well under both), and a PDF can
+have up to 60 pages. If your camera has a special very-high-resolution mode, use its normal mode for scanning.
+
 ## Adjusting a page
 
 **Crop.** Drag the four corners to the corners of the page. While you drag, a magnifier shows exactly where the
@@ -113,6 +116,11 @@ as *Checked: no hidden data in the PDF*.
 
 **What Flatbed can't remove:** what's on the page itself. Names, numbers, signatures, photos and stamps on the
 document are in the scan. Cover anything you don't want to send before you take the photo.
+
+**Your camera app may keep its own copy.** When Flatbed hands over to your phone's camera app to take a photo, some
+camera apps also save a copy in your gallery, with the place it was taken if your camera records locations. Flatbed
+can't prevent that: delete the copy from your gallery if you don't want it, or turn off location in your camera app's
+settings.
 
 **No network, nothing stored.** The web app blocks every network connection[[android]], and the Android app has no
 internet permission and no camera permission[[/android]]. Opening the web app is an ordinary visit to its website,

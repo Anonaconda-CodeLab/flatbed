@@ -5,7 +5,8 @@
    (options.pdfLib). Works in browsers and in Node 18+, so other apps (and the tests) can reuse it unchanged.
 
    Images are cleaned losslessly: metadata blocks are cut out of the file and the picture data is copied byte for byte,
-   so there is no recompression and no quality loss. Only harmless display data is kept (colour profile, rotation).
+   so there is no recompression and no quality loss. Only harmless display data is kept: the rotation, and a colour
+   profile other than plain sRGB, with its creation details blanked (see "ICC colour profiles" below).
 
    API (all on the global UnmarkedClean):
      detect(bytes)                         -> { type, label, ext, mime, supported, reason? }
@@ -46,14 +47,30 @@
   const text = b => { const s = utf8(b, true); return s != null ? s : latin1(b); };
   const clip = (s, n = 120) => { s = String(s).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
   const kb = n => n < 1024 ? n + ' bytes' : n < 1048576 ? (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
-  async function inflate(bytes, raw) {
+  // compressed data is unpacked up to a limit: a few kilobytes can unpack to gigabytes and freeze the page
+  const UNPACK_LIMIT = 64 * 1024 * 1024;
+  async function inflate(bytes, raw) {   // null when damaged or too big
     if (typeof DecompressionStream === 'undefined') return null;
     try {
-      const ds = new DecompressionStream(raw ? 'deflate-raw' : 'deflate');
-      const out = new Response(new Blob([bytes]).stream().pipeThrough(ds));
+      const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream(raw ? 'deflate-raw' : 'deflate')).getReader();
+      const parts = []; let n = 0;
+      for (;;) {
+        const { done, value } = await reader.read(); if (done) break;
+        n += value.length;
+        if (n > UNPACK_LIMIT) { reader.cancel().catch(() => {}); return null; }
+        parts.push(value);
+      }
+      return concat(parts);
+    } catch (e) { return null; }
+  }
+  async function deflate(bytes) {
+    if (typeof CompressionStream === 'undefined') return null;
+    try {
+      const out = new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate')));
       return new Uint8Array(await out.arrayBuffer());
     } catch (e) { return null; }
   }
+  const same = (a, b) => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
 
   // ---------- CRC-32 (PNG chunks, zip) ----------
   const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
@@ -238,16 +255,50 @@
   }
 
   // ---------- XMP (text) ----------
-  function xmpFindings(xml, where) {
+  // Every scan below goes forward once: patterns like <tag>...</tag> retried from each opener take quadratic time on a
+  // file built with thousands of openers and no closer, which would freeze the page. Findings also read at most
+  // XMP_SCAN of the text; cleaning removes XMP blocks whole, so this limits only the list.
+  const XMP_SCAN = 1024 * 1024;
+  function stripTags(s) {
+    let out = '', i = 0;
+    for (;;) {
+      const lt = s.indexOf('<', i); if (lt < 0) return out + s.slice(i);
+      out += s.slice(i, lt);
+      const gt = s.indexOf('>', lt); if (gt < 0) return out;
+      i = gt + 1;
+    }
+  }
+  function attrValue(xml, name) {   // name="value" or name='value': the first one only
+    const m = new RegExp(`\\b${name}\\s*=\\s*(["'])`).exec(xml); if (!m) return null;
+    const start = m.index + m[0].length, end = xml.indexOf(m[1], start);
+    return end < 0 ? null : xml.slice(start, end);
+  }
+  function elementText(xml, name) {   // what is inside the first <name ...>...</name>
+    const m = new RegExp(`<${name}(?=[\\s/>])`).exec(xml); if (!m) return null;
+    const gt = xml.indexOf('>', m.index); if (gt < 0 || xml[gt - 1] === '/') return null;
+    const end = xml.indexOf(`</${name}>`, gt);
+    return end < 0 ? null : xml.slice(gt + 1, end);
+  }
+  function listItems(s) {   // the <rdf:li> items of a list
     const out = [];
-    if (!xml) return out;
+    for (let i = 0; ;) {
+      const o = s.indexOf('<rdf:li', i); if (o < 0) break;
+      const gt = s.indexOf('>', o); if (gt < 0) break;
+      if (s[gt - 1] === '/') { i = gt + 1; continue; }
+      const c = s.indexOf('</rdf:li>', gt); if (c < 0) break;
+      out.push(s.slice(gt + 1, c)); i = c + 9;
+    }
+    return out;
+  }
+  function xmpFindings(full, where) {
+    const out = [];
+    if (!full) return out;
+    const xml = full.length > XMP_SCAN ? full.slice(0, XMP_SCAN) : full;
     const one = name => {
-      const a = new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`).exec(xml) || new RegExp(`\\b${name}\\s*=\\s*'([^']*)'`).exec(xml);
-      if (a) return a[1];
-      const e = new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}>`).exec(xml);
-      if (!e) return '';
-      const li = e[1].match(/<rdf:li\b[^>]*>([\s\S]*?)<\/rdf:li>/g);
-      return li ? li.map(x => x.replace(/<[^>]+>/g, '')).filter(Boolean).join(', ') : e[1].replace(/<[^>]+>/g, '');
+      const a = attrValue(xml, name); if (a != null) return a;
+      const e = elementText(xml, name); if (e == null) return '';
+      const li = listItems(e);
+      return li.length ? li.map(stripTags).filter(Boolean).join(', ') : stripTags(e);
     };
     const unxml = s => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&').trim();
     const add = (id, label, names, risk, extra) => {
@@ -272,7 +323,7 @@
     if (/photoshop:DocumentAncestors/.test(xml)) out.push(F('ancestors', 'Source file IDs', 'IDs of other files that were pasted into this one', 'medium'));
     if (/GCamera:Motion|Camera:MotionPhoto|GCamera:MicroVideo|Container:Directory/.test(xml)) out.push(F('motion', 'Motion photo', 'a short video clip stored with the photo', 'high', { note: 'The clip and its sound are removed too.' }));
     if (/GDepth:|GImage:|hdrgm:/.test(xml)) out.push(F('depth', 'Extra image layers', 'depth map or other hidden images', 'medium'));
-    if (!out.length) out.push(F('xmp', 'XMP metadata', kb(xml.length) + ' of extra data', 'low'));
+    if (!out.length) out.push(F('xmp', 'XMP metadata', kb(full.length) + ' of extra data', 'low'));
     if (where) out.forEach(f => { f.where = where; });
     return out;
   }
@@ -302,6 +353,87 @@
       p = next;
     }
     if (!out.length) out.push(F('photoshop', 'Photoshop data', 'editing information from Photoshop or similar apps', 'low'));
+    return out;
+  }
+
+  // ---------- ICC colour profiles ----------
+  // A plain sRGB profile is removed: viewers assume sRGB when a picture has no profile, so the colours stay the same.
+  // Any other profile (Display P3, Adobe RGB…) is kept so colours look right, but its revealing fields are blanked:
+  // when it was made (lcms and Pillow stamp the moment the file was saved), the app, platform, maker and model codes,
+  // the profile ID (a checksum of the original), the copyright text and any device or calibration notes.
+  // None of these take part in colour conversion, and the profile keeps its length.
+  const SRGB_D50 = { rXYZ: [0.4361, 0.2225, 0.0139], gXYZ: [0.3851, 0.7169, 0.0971], bXYZ: [0.1431, 0.0606, 0.7141] };
+  const s15 = (p, o) => ((p[o] << 24) | (p[o + 1] << 16) | (p[o + 2] << 8) | p[o + 3]) / 65536;
+  function iccTags(p) {
+    const tags = new Map(), n = Math.min(be32(p, 128), 200);
+    for (let i = 0; i < n; i++) {
+      const e = 132 + i * 12; if (e + 12 > p.length) break;
+      const o = be32(p, e + 4), len = be32(p, e + 8);
+      if (o >= 128 && len >= 8 && o + len <= p.length && !tags.has(ascii(p, e, 4))) tags.set(ascii(p, e, 4), { o, n: len, type: ascii(p, o, 4) });
+    }
+    return tags;
+  }
+  function iccText(p, t) {   // text of a 'desc' (v2), 'text' or 'mluc' (v4) tag
+    if (!t) return '';
+    const o = t.o, end = t.o + t.n, strip = s => clip(s.replace(/\u0000[\s\S]*$/, ''), 120);
+    if (t.type === 'text') return strip(latin1(p.subarray(o + 8, end)));
+    if (t.type === 'desc' && t.n >= 12) return strip(latin1(p.subarray(o + 12, Math.min(end, o + 12 + be32(p, o + 8)))));
+    if (t.type === 'mluc' && t.n >= 16) {
+      const count = Math.min(be32(p, o + 8), 100), size = be32(p, o + 12); let best = '';
+      for (let i = 0; i < count && size >= 12; i++) {
+        const r = o + 16 + i * size; if (r + 12 > end) break;
+        const len = be32(p, r + 4), at = o + be32(p, r + 8); if (at + len > end) continue;
+        const s = strip(new TextDecoder('utf-16be').decode(p.subarray(at, at + (len & ~1))));
+        if (s && (!best || ascii(p, r, 4) === 'enUS')) best = s;
+      }
+      return best;
+    }
+    return '';
+  }
+  function blankText(p, t) {   // empties a text tag in place, keeping its length and structure
+    const o = t.o, end = t.o + t.n;
+    if (t.type === 'text') p.fill(0, o + 8, end);
+    else if (t.type === 'desc') p.fill(0, Math.min(end, o + 12), end);
+    else if (t.type === 'mluc' && t.n >= 16) {
+      const count = Math.min(be32(p, o + 8), 100), size = be32(p, o + 12);
+      for (let i = 0; i < count && size >= 12; i++) { const r = o + 16 + i * size; if (r + 12 > end) break; p.fill(0, r + 4, r + 8); }
+      p.fill(0, Math.min(end, o + 16 + count * size), end);
+    }
+  }
+  // what to do with a profile: { kind: 'srgb' | 'other' | 'bad', name, details: [what is revealing], bytes: blanked copy }
+  function iccPlan(p) {
+    if (!p || p.length < 132 || !startsWith(p, 36, 'acsp') || be32(p, 0) > p.length) return { kind: 'bad', name: '', details: [] };
+    const tags = iccTags(p), name = iccText(p, tags.get('desc'));
+    const xyz = sig => { const t = tags.get(sig); return t && t.type === 'XYZ ' && t.n >= 20 ? [s15(p, t.o + 8), s15(p, t.o + 12), s15(p, t.o + 16)] : null; };
+    const isSrgb = ascii(p, 16, 4) === 'RGB ' && /srgb/i.test(name)
+      && Object.keys(SRGB_D50).every(sig => { const v = xyz(sig); return v && v.every((x, i) => Math.abs(x - SRGB_D50[sig][i]) < 0.0015); });
+    if (isSrgb) return { kind: 'srgb', name, details: [], intent: p[67] & 3 };
+    const q = p.slice(), details = [], zero = (a, b) => q.fill(0, a, b), nonzero = (a, b) => p.subarray(a, b).some(x => x);
+    if (nonzero(24, 36)) {
+      const d = i => String(be16(p, 24 + i * 2)).padStart(2, '0');
+      details.push(`made ${d(0)}-${d(1)}-${d(2)} ${d(3)}:${d(4)}`); zero(24, 36);
+    }
+    const codes = [];
+    for (const at of [4, 40, 48, 52, 80]) if (nonzero(at, at + 4)) { const c = clip(latin1(p.subarray(at, at + 4)).replace(/[^\x20-\x7e]/g, ''), 8); if (c && !codes.includes(c)) codes.push(c); zero(at, at + 4); }
+    if (codes.length) details.push('app and device codes ' + codes.join(', '));
+    for (const sig of ['cprt', 'dmnd', 'dmdd']) {
+      const t = tags.get(sig); if (!t) continue;
+      const s = iccText(p, t); if (s) details.push(s);
+      if (s || nonzero(t.o + 8, t.o + t.n)) blankText(q, t);
+    }
+    const calt = tags.get('calt'); if (calt && calt.type === 'dtim' && calt.n >= 20 && nonzero(calt.o + 8, calt.o + 20)) { details.push('calibration date'); zero(calt.o + 8, calt.o + 20); }
+    const changed = !same(p, q);
+    if (changed) zero(84, 100);   // the profile ID is a checksum of the original: it would no longer match
+    return { kind: 'other', name, details, changed, bytes: q };
+  }
+  function iccFindings(plan, out) {
+    if (!plan) return out;
+    if (plan.kind === 'bad') addOnce(out, F('icc', 'Colour profile', 'damaged', 'low', { note: 'Viewers ignore a damaged colour profile, so it is removed.' }));
+    else if (plan.kind === 'srgb') addOnce(out, F('icc', 'Colour profile', plan.name, 'low', { note: 'Standard sRGB, which viewers assume anyway, so the colours stay the same.' }));
+    else {
+      addOnce(out, F('icc', 'Colour profile', plan.name, 'low', { keep: 'always', note: 'Kept so colours look right.' }));
+      if (plan.changed) addOnce(out, F('iccdetails', 'Colour profile details', plan.details.join('; ') || 'creation details', 'low', { note: 'When and with what the profile was made. Blanked; the colours are not affected.' }));
+    }
     return out;
   }
 
@@ -338,10 +470,29 @@
     if (m === 0xe2) return startsWith(b, d, 'ICC_PROFILE\0') ? 'icc' : startsWith(b, d, 'MPF\0') ? 'mpf' : startsWith(b, d, 'FPXR\0') ? 'fpxr' : 'app2';
     if (m === 0xed) return startsWith(b, d, 'Photoshop 3.0\0') ? 'photoshop' : 'app13';
     if (m === 0xee) return startsWith(b, d, 'Adobe') ? 'adobe' : 'app14';
+    if (m >= 0xf0 && m <= 0xfd) return 'jpgn';   // reserved markers: no picture data in an ordinary JPEG (JPEG-LS is handled below)
     if (m === 0xeb) return 'jumbf';
     if (m === 0xfe) return 'com';
     if (m >= 0xe0 && m <= 0xef) return 'app' + (m - 0xe0);
     return null;
+  }
+  // JPEG-LS uses two of the reserved markers (FFF7 frame, FFF8 parameters) for the picture itself
+  const isJpegLs = segs => segs.some(s => s.m === 0xf7);
+  const ADOBE_LEN = 12;
+  // JFIF header: 'JFIF\0', version, density units, X and Y density, then the thumbnail's width and height (0 = none)
+  // and its pixels (3 bytes each). Only those first 14 bytes are needed; a clean copy says "no thumbnail".
+  const JFIF_LEN = 14;   // 'Adobe', version, two flag words and the colour transform: anything after it is extra
+  // a JPEG colour profile may be split over several APP2 segments, numbered 1..count
+  function jpegIcc(b, segs) {
+    const parts = segs.filter(s => appId(b, s) === 'icc');
+    if (!parts.length) return null;
+    const ordered = parts.length === 1 ? parts : parts.slice().sort((x, y) => b[x.d + 12] - b[y.d + 12]);
+    const ok = ordered.every((s, i) => s.e >= s.d + 14 && (parts.length === 1 || (b[s.d + 12] === i + 1 && b[s.d + 13] === parts.length)));
+    return { parts, ordered, plan: ok ? iccPlan(concat(ordered.map(s => b.subarray(s.d + 14, s.e)))) : { kind: 'bad', name: '', details: [] } };
+  }
+  function jpegIccSegments(b, icc) {   // the blanked profile, back in segments of the same sizes
+    let at = 0;
+    return icc.ordered.map(s => { const seg = b.slice(s.s, s.e), n = s.e - s.d - 14; seg.set(icc.plan.bytes.subarray(at, at + n), s.d - s.s + 14); at += n; return seg; });
   }
   function inspectJpeg(b, where) {
     const { segs, trailing, truncated } = jpegSegments(b);
@@ -352,14 +503,21 @@
       else if (id === 'xmp') out = out.concat(xmpFindings(text(b.subarray(s.d + 29, s.e)), where));
       else if (id === 'xmpext') addOnce(out, F('xmp', 'XMP metadata', 'extended block', 'low'));
       else if (id === 'photoshop') out = out.concat(photoshopFindings(b, s.d + 14, s.e));
-      else if (id === 'icc') addOnce(out, F('icc', 'Colour profile', 'kept so colours look right', 'low', { keep: 'always' }));
+      else if (id === 'icc') continue;   // handled below, once all its parts are known
       else if (id === 'mpf') addOnce(out, F('mpf', 'Extra embedded images', 'previews, depth maps or other hidden pictures', 'medium'));
       else if (id === 'jumbf') addOnce(out, F('c2pa', 'Content Credentials', 'a signed record of where the image came from and how it was edited', 'medium'));
       else if (id === 'com') addOnce(out, F('comment', 'Comment', text(b.subarray(s.d, s.e)), 'medium'));
-      else if (id === 'jfif' || id === 'adobe') continue;
+      else if (id === 'adobe') { if (s.e - s.d > ADOBE_LEN) addOnce(out, F('appdata', 'Other app data', 'extra data added to the Adobe colour block', 'low')); }
+      else if (id === 'jpgn') { if (!(isJpegLs(segs) && (s.m === 0xf7 || s.m === 0xf8))) addOnce(out, F('appdata', 'Other app data', 'data in reserved JPEG markers', 'low')); }
+      else if (id === 'jfif') {
+        const tw = b[s.d + 12] || 0, th = b[s.d + 13] || 0;
+        if (s.e - s.d >= JFIF_LEN && tw * th) addOnce(out, F('thumb', 'Embedded thumbnail', 'a small copy of the original picture', 'high', { note: 'It can still show parts of the photo you cropped out or edited.' }));
+        else if (s.e - s.d > JFIF_LEN) addOnce(out, F('appdata', 'Other app data', 'extra data added to the JFIF header', 'low'));
+      }
       else if (id === 'jfxx') addOnce(out, F('thumb', 'Embedded thumbnail', 'a small copy of the original picture', 'high', { note: 'It can still show parts of the photo you cropped out or edited.' }));
       else addOnce(out, F('appdata', 'Other app data', 'private data added by a camera or app', 'low'));
     }
+    const icc = jpegIcc(b, segs); if (icc) iccFindings(icc.plan, out);
     if (trailing > 16) {
       const tail = b.subarray(b.length - trailing);
       const video = indexOf(tail, 'ftyp') >= 0 && indexOf(tail, 'ftyp') < 64 || indexOf(tail, 'ftypmp4') >= 0 || indexOf(tail, 'ftypisom') >= 0;
@@ -370,15 +528,23 @@
   function cleanJpeg(b, opts, keepIn) {
     const { segs, end } = jpegSegments(b);
     const keep = keepIn || inspectJpeg(b).keep;
+    const icc = jpegIcc(b, segs);
     const exif = buildExif(keep, opts || {});
     const parts = [b.subarray(0, 2)];
     let inserted = false;
     const addExif = () => { if (!inserted && exif) { const head = new Uint8Array(10); const n = exif.length + 8; head.set([0xff, 0xe1, n >> 8, n & 255, 0x45, 0x78, 0x69, 0x66, 0, 0]); parts.push(head, exif); } inserted = true; };
     for (const s of segs) {
       const id = appId(b, s);
-      if (id === 'jfif') { parts.push(b.subarray(s.s, s.e)); continue; }
+      if (id === 'jfif') {
+        if (s.e - s.d < JFIF_LEN) parts.push(b.subarray(s.s, s.e));   // too short to hold anything extra: as it is
+        else { const h = b.slice(s.d - 4, s.d + JFIF_LEN); h[2] = 0; h[3] = JFIF_LEN + 2; h[16] = 0; h[17] = 0; parts.push(h); }
+        continue;
+      }
       if (!inserted && id !== 'jfif') addExif();
-      if (id === null || id === 'icc' || id === 'adobe') parts.push(b.subarray(s.s, s.e));
+      if (id === 'icc') { if (icc.plan.kind === 'other' && s === icc.parts[0]) parts.push(...jpegIccSegments(b, icc)); }
+      else if (id === 'adobe') parts.push(s.e - s.d > ADOBE_LEN ? concat([new Uint8Array([0xff, 0xee, 0, ADOBE_LEN + 2]), b.subarray(s.d, s.d + ADOBE_LEN)]) : b.subarray(s.s, s.e));
+      else if (id === 'jpgn') { if (isJpegLs(segs) && (s.m === 0xf7 || s.m === 0xf8)) parts.push(b.subarray(s.s, s.e)); }
+      else if (id === null) parts.push(b.subarray(s.s, s.e));
     }
     addExif();
     parts.push(end > 0 ? b.subarray(end - 2, end) : new Uint8Array([0xff, 0xd9]));
@@ -387,7 +553,8 @@
 
   // ---------- PNG ----------
   const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-  const PNG_KEEP = new Set(['tRNS', 'gAMA', 'cHRM', 'sRGB', 'iCCP', 'sBIT', 'bKGD', 'pHYs', 'hIST', 'sPLT', 'acTL', 'fcTL', 'fdAT', 'cICP', 'mDCv', 'cLLI', 'mDCV', 'cLLi']);
+  const PNG_KEEP = new Set(['tRNS', 'gAMA', 'cHRM', 'sRGB', 'iCCP', 'sBIT', 'bKGD', 'pHYs', 'hIST', 'acTL', 'fcTL', 'fdAT', 'cICP', 'mDCv', 'cLLI', 'mDCV', 'cLLi']);
+  const PNG_CRITICAL = new Set(['IHDR', 'PLTE', 'IDAT', 'IEND']);   // any other chunk with a capital first letter is unknown: viewers refuse it
   function pngChunks(b) {
     for (let i = 0; i < 8; i++) if (b[i] !== PNG_SIG[i]) throw new Error('Not a PNG file');
     const out = []; let p = 8;
@@ -423,11 +590,20 @@
     return out;
   }
   const hexProfile = s => {   // ImageMagick "Raw profile type exif": "\nexif\n   1234\n4578696600..."
-    const m = /^\s*\S+\s+\d+\s+([0-9a-fA-F\s]+)$/.exec(s || ''); if (!m) return null;
-    const hex = m[1].replace(/\s+/g, ''); const a = new Uint8Array(hex.length >> 1);
+    const m = /^\s*\S+\s+\d+\s/.exec(s || ''); if (!m) return null;   // the header, then the hex checked separately (one pass)
+    const hex = s.slice(m[0].length).replace(/\s+/g, ''); if (!/^[0-9a-fA-F]*$/.test(hex)) return null;
+    const a = new Uint8Array(hex.length >> 1);
     for (let i = 0; i < a.length; i++) a[i] = parseInt(hex.substr(i * 2, 2), 16);
     return a;
   };
+  // iCCP: profile name, 0, compression method 0, zlib data. null when this browser can't decompress (left as it is)
+  async function pngIcc(b, c) {
+    const d = b.subarray(c.d, c.d + c.n), z = d.indexOf(0), bad = { name: null, plan: { kind: 'bad', name: '', details: [] } };
+    if (z < 1 || z > 79 || d[z + 1] !== 0) return bad;
+    if (typeof DecompressionStream === 'undefined') return null;
+    const raw = await inflate(d.subarray(z + 2));
+    return raw ? { name: d.subarray(0, z), plan: iccPlan(raw) } : bad;
+  }
   async function inspectPng(b) {
     const { chunks, trailing } = pngChunks(b);
     let out = [], keep = {};
@@ -451,9 +627,10 @@
     for (const c of chunks) {
       if (c.type === 'eXIf') { const r = exifFindings(parseTiff(b.subarray(c.d, c.d + c.n))); out = out.concat(r.findings); keep = Object.assign(keep, r.keep); }
       else if (c.type === 'tIME') { const d = b.subarray(c.d); addOnce(out, F('timemod', 'Date modified', `${be16(d, 0)}-${String(d[2]).padStart(2, '0')}-${String(d[3]).padStart(2, '0')} ${String(d[4]).padStart(2, '0')}:${String(d[5]).padStart(2, '0')}`, 'medium')); }
-      else if (c.type === 'iCCP' || c.type === 'sRGB' || c.type === 'cICP') addOnce(out, F('icc', 'Colour profile', 'kept so colours look right', 'low', { keep: 'always' }));
+      else if (c.type === 'iCCP') { const icc = await pngIcc(b, c); if (icc) iccFindings(icc.plan, out); else addOnce(out, F('icc', 'Colour profile', '', 'low', { keep: 'always', note: 'Kept so colours look right.' })); }
       else if (c.type === 'caBX') addOnce(out, F('c2pa', 'Content Credentials', 'a signed record of where the image came from and how it was edited', 'medium'));
-      else if (/^[a-z]/.test(c.type) && !PNG_KEEP.has(c.type) && !/^(tEXt|zTXt|iTXt)$/.test(c.type)) addOnce(out, F('appdata', 'Other app data', 'private data added by an app (' + clip(c.type, 8) + ')', 'low'));
+      else if (c.type === 'sPLT') addOnce(out, F('appdata', 'Other app data', 'a suggested palette, which carries a name', 'low'));
+      else if (!PNG_CRITICAL.has(c.type) && !PNG_KEEP.has(c.type) && !/^(tEXt|zTXt|iTXt)$/.test(c.type)) addOnce(out, F('appdata', 'Other app data', 'private data added by an app (' + clip(c.type.replace(/[^\x20-\x7e]/g, '?'), 8) + ')', 'low'));
     }
     if (trailing > 16) addOnce(out, F('trailing', 'Hidden data after the picture', kb(trailing) + ' of extra data stored after the image', 'high'));
     return { findings: out, keep };
@@ -474,10 +651,15 @@
     if (exif) extra.push(pngChunk('eXIf', exif));
     if (opts.keepCopyright && keep.pngCopyright && !(exif && keep.copyright)) extra.push(pngChunk('tEXt', concat([enc('Copyright\0'), enc(keep.pngCopyright.slice(0, 200))])));
     if (opts.keepDate && keep.pngDate && !(exif && keep.date)) extra.push(pngChunk('tEXt', concat([enc('Creation Time\0'), enc(keep.pngDate.slice(0, 64))])));
-    const parts = [b.subarray(0, 8)];
+    const parts = [b.subarray(0, 8)], hasSrgb = chunks.some(c => c.type === 'sRGB' || c.type === 'cICP');
     for (const c of chunks) {
-      const critical = /^[A-Z]/.test(c.type);
-      if (critical || PNG_KEEP.has(c.type)) parts.push(b.subarray(c.s, c.e));
+      const critical = PNG_CRITICAL.has(c.type);
+      if (c.type === 'iCCP') {
+        const icc = await pngIcc(b, c), plan = icc && icc.plan;
+        if (!plan || (plan.kind === 'other' && !plan.changed)) parts.push(b.subarray(c.s, c.e));
+        else if (plan.kind === 'srgb' && !hasSrgb) parts.push(pngChunk('sRGB', new Uint8Array([plan.intent])));   // says "sRGB" in one byte, so any gAMA or cHRM chunk stays ignored
+        else if (plan.kind === 'other') { const z = await deflate(plan.bytes); parts.push(z ? pngChunk('iCCP', concat([icc.name, new Uint8Array(2), z])) : b.subarray(c.s, c.e)); }
+      } else if (critical || PNG_KEEP.has(c.type)) parts.push(b.subarray(c.s, c.e));
       if (c.type === 'IHDR') parts.push(...extra);
     }
     return concat(parts);
@@ -503,7 +685,7 @@
         let t = b.subarray(c.d, c.d + c.n); if (startsWith(t, 0, 'Exif\0')) t = t.subarray(6);
         const r = exifFindings(parseTiff(t)); out = out.concat(r.findings); keep = Object.assign(keep, r.keep);
       } else if (c.type === 'XMP ') out = out.concat(xmpFindings(text(b.subarray(c.d, c.d + c.n))));
-      else if (c.type === 'ICCP') addOnce(out, F('icc', 'Colour profile', 'kept so colours look right', 'low', { keep: 'always' }));
+      else if (c.type === 'ICCP') iccFindings(iccPlan(b.subarray(c.d, c.d + c.n)), out);
       else if (!['VP8X', 'VP8 ', 'VP8L', 'ALPH', 'ANIM', 'ANMF'].includes(c.type)) addOnce(out, F('appdata', 'Other app data', 'private data added by an app', 'low'));
     }
     if (trailing > 16) addOnce(out, F('trailing', 'Hidden data after the picture', kb(trailing) + ' of extra data stored after the image', 'high'));
@@ -514,13 +696,17 @@
     const { keep } = inspectWebp(b);
     const hasX = chunks.length && chunks[0].type === 'VP8X';
     const exif = hasX ? buildExif(keep, opts) : null;   // a simple WebP has no room for metadata: nothing to keep
+    const iccChunk = hasX && chunks.find(c => c.type === 'ICCP'), plan = iccChunk ? iccPlan(b.subarray(iccChunk.d, iccChunk.d + iccChunk.n)) : null;
+    const keepIcc = plan && plan.kind === 'other';
     const parts = [];
     for (const c of chunks) {
       if (c.type === 'VP8X') {
         const x = b.slice(c.s, c.e);
-        x[8] = (x[8] & ~0x0c) | (exif ? 0x08 : 0);   // clear the EXIF and XMP flags (set EXIF again if we add one)
+        x[8] = (x[8] & ~0x2c) | (exif ? 0x08 : 0) | (keepIcc ? 0x20 : 0);   // clear the EXIF and XMP flags (set EXIF again if we add one); ICC only if kept
         parts.push(x);
-      } else if (['VP8 ', 'VP8L', 'ALPH', 'ANIM', 'ANMF', 'ICCP'].includes(c.type)) parts.push(b.subarray(c.s, c.e));
+      } else if (c.type === 'ICCP') {
+        if (c === iccChunk && keepIcc) { const x = b.slice(c.s, c.e); x.set(plan.bytes, 8); parts.push(x); }
+      } else if (['VP8 ', 'VP8L', 'ALPH', 'ANIM', 'ANMF'].includes(c.type)) parts.push(b.subarray(c.s, c.e));
     }
     if (exif) { const h = new Uint8Array(8); h.set(enc('EXIF')); h[4] = exif.length & 255; h[5] = (exif.length >> 8) & 255; h[6] = (exif.length >> 16) & 255; h[7] = exif.length >>> 24; parts.push(h, exif); if (exif.length & 1) parts.push(new Uint8Array(1)); }
     const body = concat(parts), head = new Uint8Array(12), n = body.length + 4;
@@ -572,6 +758,37 @@
     return out;
   }
   const MARKUP_KEEP = new Set(['/Link', '/Widget']);
+  // a stream's decoded bytes, or null when it is damaged or would unpack past the limit
+  function pdfDecode(o, lib) {
+    try {
+      if (!(o instanceof lib.PDFRawStream)) return o.getContents();
+      const out = lib.decodePDFRawStream(o).getBytes(UNPACK_LIMIT + 1);
+      return out.length > UNPACK_LIMIT ? null : out;
+    } catch (e) { return null; }
+  }
+  const hostOf = s => { const m = /^[a-z][\w+.-]*:\/\/(?:[^@/?#]*@)?([^/?#:]+)/i.exec(s || ''); return clip(m ? m[1] : s || 'another file', 60); };
+  // digital signatures: the field's value, and signature dictionaries anywhere (/Type /Sig or /DocTimeStamp)
+  const isSigDict = (o, K) => K.isDict(o) && (o.lookup(K.N('Type')) === K.N('Sig') || o.lookup(K.N('Type')) === K.N('DocTimeStamp'));
+  const isSigField = (o, K) => K.isDict(o) && o.lookup(K.N('FT')) === K.N('Sig');
+  // actions that run code or send the form somewhere
+  const SCRIPT_ACTIONS = ['JavaScript', 'Launch', 'SubmitForm', 'ImportData'];
+  // XFA: an XML form layer (mostly in government and tax forms) that Adobe Reader runs, scripts included
+  function xfaInfo(doc, K, lib) {
+    const af = doc.catalog.lookup(K.N('AcroForm'));
+    if (!K.isDict(af) || !af.has(K.N('XFA'))) return null;
+    const x = af.lookup(K.N('XFA')), ctx = doc.context;
+    const streams = K.isArr(x) ? x.asArray().map(v => ctx.lookup(v)).filter(K.isStream) : K.isStream(x) ? [x] : [];
+    const xml = streams.map(s => { const r = pdfDecode(s, lib); return r ? latin1(r) : '<script>'; }).join('\n');   // unreadable: assume the worst
+    const fields = af.lookup(K.N('Fields')), needs = doc.catalog.lookup(K.N('NeedsRendering'));
+    const submits = [], low = xml.toLowerCase();   // not capped: removing XFA depends on what is found here
+    for (let i = 0, n = 0; n < 200; n++) {   // each <submit ...> tag once, looking only inside the tag
+      const o = low.indexOf('<submit', i); if (o < 0) break;
+      const gt = low.indexOf('>', o), tag = xml.slice(o, Math.min(gt < 0 ? xml.length : gt, o + 500));
+      const m = /\btarget\s*=\s*["']([^"']+)/i.exec(tag); if (m) submits.push(hostOf(m[1]));
+      i = o + 7;
+    }
+    return { af, scripts: /<script\b/i.test(xml), submits, dynamic: !(K.isArr(fields) && fields.size()) || String(needs) === 'true' };
+  }
   // a photo placed in the PDF: the JPEG data, after undoing any text encoding (ASCII85, hex, Flate) wrapped around it
   function pdfJpeg(o, K, lib) {
     if (!(o instanceof lib.PDFRawStream) || o.dict.lookup(K.N('Subtype')) !== K.N('Image')) return null;
@@ -583,7 +800,9 @@
     d.set(K.N('Filter'), o.dict.context.obj(list.slice(0, -1)));
     const p = o.dict.lookup(K.N('DecodeParms'));
     if (K.isArr(p)) d.set(K.N('DecodeParms'), o.dict.context.obj(p.asArray().slice(0, -1))); else d.delete(K.N('DecodeParms'));
-    return lib.decodePDFRawStream(lib.PDFRawStream.of(d, o.getContents())).decode();
+    const out = pdfDecode(lib.PDFRawStream.of(d, o.getContents()), lib);
+    if (!out) throw new Error('too big or damaged');
+    return out;
   }
   async function inspectPdf(b, lib) {
     const out = [], options = { attachments: false, scripts: false, comments: false };
@@ -600,18 +819,46 @@
     if (ctx.trailerInfo.ID) out.push(F('docid', 'Document IDs', 'identifiers that can link this file to its originals and other copies', 'medium'));
     const cat = doc.catalog;
     let xmpCount = 0, thumbs = 0, piece = 0, js = 0, annCount = 0, authors = new Set(), photos = 0, photoGps = 0, fields = 0, layers = 0;
+    const sigs = new Set(), submits = new Set(); let imports = 0;
     const seen = walk(doc, lib, (o, parent, key) => {
       if (key === '/Metadata' && K.isStream(o)) xmpCount++;
       if (key === '/Thumb') thumbs++;
       if (key === '/PieceInfo') piece++;
       if ((key === '/S' && o === K.N('JavaScript')) || key === '/JS') js++;
+      if (isSigDict(o, K)) sigs.add(o);
+      if (isSigField(o, K)) { const v = o.lookup(K.N('V')); if (K.isDict(v)) sigs.add(v); }
+      if (K.isDict(o)) {
+        const s = o.lookup(K.N('S'));
+        if (s === K.N('SubmitForm')) { const t = o.lookup(K.N('F')); submits.add(hostOf(K.isDict(t) ? K.str(t.lookup(K.N('UF')) || t.lookup(K.N('F'))) : K.str(t))); }
+        if (s === K.N('ImportData')) imports++;
+      }
       return true;
     });
+    // digital signatures
+    if (sigs.size || cat.has(K.N('DSS'))) {
+      const who = [...sigs].map(d => [K.str(d.lookup(K.N('Name'))), d.has(K.N('M')) ? pdfDate(K.str(d.lookup(K.N('M')))) : '', K.str(d.lookup(K.N('Location'))), K.str(d.lookup(K.N('ContactInfo'))), K.str(d.lookup(K.N('Reason')))].filter(Boolean).join(', ')).filter(Boolean);
+      out.push(F('signature', sigs.size > 1 ? 'Digital signatures' : 'Digital signature', who.join('; ') || (sigs.size ? 'the signer’s certificate, with their name' : 'certificates kept to check a signature'), 'high',
+        { note: 'The digital signature is removed: any change to a signed PDF makes its signature invalid anyway.' }));
+    }
+    // XFA forms
+    const xfa = xfaInfo(doc, K, lib);
+    if (xfa && (xfa.scripts || xfa.submits.length)) {
+      if (xfa.dynamic) out.push(F('xfa', 'XFA form scripts', `code in a form built entirely with XFA${xfa.submits.length ? `, which can send the form to ${[...new Set(xfa.submits)].join(', ')}` : ''}`, 'medium',
+        { keep: 'always', note: 'Kept: this form is built entirely from XFA, so without it the pages would be blank. Only Adobe Reader runs it; most other PDF readers ignore it.' }));
+      else { if (xfa.scripts) js++; xfa.submits.forEach(h => submits.add(h)); }
+    }
+    // article threads and web capture keep their own details
+    const threads = cat.lookup(K.N('Threads')), tinfo = [];
+    if (K.isArr(threads)) for (let i = 0; i < threads.size(); i++) {
+      const t = threads.lookup(i), inf = K.isDict(t) ? t.lookup(K.N('I')) : null;
+      if (K.isDict(inf)) for (const [, v] of inf.entries()) { const x = K.str(ctx.lookup(v)); if (x) tinfo.push(x); }
+    }
+    if (tinfo.length) out.push(F('threads', 'Article thread details', [...new Set(tinfo)].join('; '), 'medium', { note: 'Article threads (for reading columns in order) can carry their own author and title.' }));
     // XMP of the document itself (details), other XMP blocks are only counted
     const meta = cat.lookup(K.N('Metadata'));
     if (K.isStream(meta)) {
       let raw = null;
-      try { raw = lib.decodePDFRawStream ? lib.decodePDFRawStream(meta).decode() : meta.getContents(); } catch (e) { raw = null; }
+      raw = pdfDecode(meta, lib);
       out.push(...xmpFindings(raw ? text(raw) : '').filter(f => !out.some(x => x.id === f.id && x.value === f.value)));
       xmpCount--;
     }
@@ -638,7 +885,12 @@
     if (files.length || fileAnnots) { options.attachments = true; out.push(F('attachments', 'Attached files', files.length ? files.map(n => clip(n, 40)).join(', ') : `${fileAnnots} attached file${fileAnnots > 1 ? 's' : ''}`, 'high', { option: 'attachments', note: 'Files stored inside the PDF. They can hold their own hidden data.' })); }
     if (annCount) { options.comments = true; out.push(F('comments', 'Comments and markup', `${annCount} note${annCount > 1 ? 's' : ''}, highlight${annCount > 1 ? 's' : ''} or drawing${annCount > 1 ? 's' : ''}`, 'medium', { option: 'comments' })); }
     if (authors.size) out.push(F('commentauthors', 'Comment authors', [...authors].join(', '), 'high', { option: 'comments' }));
-    if (js || (K.isDict(names) && names.has(K.N('JavaScript')))) { options.scripts = true; out.push(F('scripts', 'Scripts', 'JavaScript that runs when the PDF is opened or used', 'medium', { option: 'scripts' })); }
+    if (cat.has(K.N('SpiderInfo')) || (K.isDict(names) && (names.has(K.N('URLS')) || names.has(K.N('IDS'))))) out.push(F('webcapture', 'Web capture data', 'the addresses of the web pages this PDF was made from', 'medium'));
+    const doesWhat = [];
+    if (js || (K.isDict(names) && names.has(K.N('JavaScript')))) doesWhat.push('JavaScript that runs when the PDF is opened or used');
+    if (submits.size) doesWhat.push(`a button that sends the form to ${[...submits].join(', ')}`);
+    if (imports) doesWhat.push('a button that loads data from another file');
+    if (doesWhat.length) { options.scripts = true; out.push(F('scripts', 'Scripts', doesWhat.join('; '), submits.size ? 'high' : 'medium', { option: 'scripts' })); }
     const af = cat.lookup(K.N('AcroForm')); if (K.isDict(af)) { const fl = af.lookup(K.N('Fields')); if (K.isArr(fl)) fields = Math.max(fields, fl.size()); }
     if (fields) out.push(F('forms', 'Form fields', `${fields} field${fields > 1 ? 's' : ''} and any answers in them (kept)`, 'low', { keep: 'always' }));
     const ocp = cat.lookup(K.N('OCProperties')); if (K.isDict(ocp)) { const ocg = ocp.lookup(K.N('OCGs')); layers = K.isArr(ocg) ? ocg.size() : 0; }
@@ -649,7 +901,7 @@
       try {
         const jpg = pdfJpeg(o, K, lib); if (!jpg) continue;
         const r = inspectJpeg(jpg);
-        const real = r.findings.filter(f => f.keep !== 'always');
+        const real = r.findings.filter(f => f.keep !== 'always' && !/^icc/.test(f.id));
         if (real.length) { photos++; if (real.some(f => f.id === 'gps')) photoGps++; }
       } catch (e) { /* not a readable JPEG: leave it */ }
     }
@@ -682,14 +934,35 @@
       if (opts.removeScripts) names.delete(K.N('JavaScript'));
     }
     if (opts.removeAttachments) cat.delete(K.N('AF'));
-    const isScriptAction = a => { const d = ctx.lookup(a); return K.isDict(d) && (d.lookup(K.N('S')) === K.N('JavaScript') || d.lookup(K.N('S')) === K.N('Launch') || d.has(K.N('JS'))); };
-    walk(doc, lib, o => {
+    // digital signatures: the change made by cleaning would make them invalid anyway
+    cat.delete(K.N('DSS')); cat.delete(K.N('Perms'));
+    const af = cat.lookup(K.N('AcroForm'));
+    if (K.isDict(af)) af.delete(K.N('SigFlags'));
+    // XFA scripts: without XFA, Adobe Reader uses the ordinary form fields (an XFA-only form is kept, and listed)
+    const xfa = xfaInfo(doc, K, lib);
+    if (opts.removeScripts && xfa && !xfa.dynamic && (xfa.scripts || xfa.submits.length)) { xfa.af.delete(K.N('XFA')); cat.delete(K.N('NeedsRendering')); }
+    // article threads' own details, and web capture data
+    const threads = cat.lookup(K.N('Threads'));
+    if (K.isArr(threads)) for (let i = 0; i < threads.size(); i++) { const t = threads.lookup(i); if (K.isDict(t)) t.delete(K.N('I')); }
+    cat.delete(K.N('SpiderInfo'));
+    if (K.isDict(names)) { names.delete(K.N('URLS')); names.delete(K.N('IDS')); }
+    const isScriptAction = a => { const d = ctx.lookup(a); return K.isDict(d) && (SCRIPT_ACTIONS.some(n => d.lookup(K.N('S')) === K.N(n)) || d.has(K.N('JS'))); };
+    walk(doc, lib, (o, parent, key) => {
+      if (isSigDict(o, K) && K.isDict(parent) && key) { parent.delete(K.N(key.slice(1))); return false; }
       if (!K.isDict(o)) return true;
       for (const k of ALWAYS) if (o.has(K.N(k))) o.delete(K.N(k));
+      if (isSigField(o, K)) {   // an empty signature field stays; its value and its picture (often the signer's name) go
+        o.delete(K.N('V')); o.delete(K.N('AP'));
+        const kids = o.lookup(K.N('Kids')); if (K.isArr(kids)) for (let i = 0; i < kids.size(); i++) { const w = kids.lookup(i); if (K.isDict(w)) w.delete(K.N('AP')); }
+      }
       if (opts.removeScripts) {
         o.delete(K.N('AA'));
         for (const k of ['OpenAction', 'A']) { const v = o.get(K.N(k)); if (v && isScriptAction(v)) o.delete(K.N(k)); }
-        if (o.has(K.N('Next'))) { const v = o.get(K.N('Next')); if (isScriptAction(v)) o.delete(K.N('Next')); }
+        if (o.has(K.N('Next'))) {
+          const v = o.get(K.N('Next')), list = ctx.lookup(v);
+          if (K.isArr(list)) { const keep = list.asArray().filter(a => !isScriptAction(a)); if (keep.length) o.set(K.N('Next'), ctx.obj(keep)); else o.delete(K.N('Next')); }
+          else if (isScriptAction(v)) o.delete(K.N('Next'));
+        }
       }
       if (opts.removeAttachments && o.lookup(K.N('Type')) === K.N('Filespec')) { o.delete(K.N('EF')); o.delete(K.N('RF')); }
       return true;
@@ -701,7 +974,7 @@
       try {
         const before = pdfJpeg(o, K, lib); if (!before) continue;
         const after = cleanJpeg(before, {}, {});   // PDF readers ignore the rotation tag, so nothing is kept
-        if (after.length === before.length && o.getContents() === before) continue;
+        if (o.getContents() === before && same(after, before)) continue;
         const d = o.dict.clone(ctx);
         d.set(K.N('Filter'), K.N('DCTDecode'));
         const p = o.dict.lookup(K.N('DecodeParms'));

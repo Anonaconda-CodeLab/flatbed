@@ -19,7 +19,9 @@
      filter(img, mode, strength)       -> RGBA image; mode 'color' | 'enhanced' | 'grey' | 'bw'; strength -1..1
      flattenGray(img)                  -> grey image with shadows and uneven light removed (used for OCR)
      bilevel(img, strength)            -> { w, h, bits } 1 bit a pixel, 1 = white, rows padded to whole bytes (PDF)
-     defaultQuad(w, h)                 -> the whole picture (used when no page edge is found) */
+     defaultQuad(w, h)                 -> the whole picture (used when no page edge is found)
+     pictureSize(bytes)                -> { type, w, h } read from a JPEG, PNG, WebP, GIF, BMP or HEIF header, or null
+     tooLarge(bytes)                   -> { type, w, h } when the picture is over MAX_PIXELS (100 megapixels), else null */
 (function (root) {
   'use strict';
 
@@ -590,7 +592,61 @@
     return { w, h, stride, bits };
   }
 
-  const api = { maxMin, paperMap, toGray, shrink, detectPage, defaultQuad, outputSize, warp, homography, estimateSkew, rotate, rotate90, filter, flattenGray, bilevel, order };
+  // ---------- picture size from the file header, before anything decodes it ----------
+  // A small file can declare enormous dimensions (a one-colour 40000 x 40000 PNG is a few MB), and decoding it would
+  // need gigabytes and crash the page or the app. The size is read from the header only, with every offset checked;
+  // null when the format isn't recognised (the browser then decides) or the header is damaged.
+  const MAX_PIXELS = 100e6;   // 100 megapixels: far more than a page needs (an A4 page at 600 dpi is 35 megapixels)
+  function pictureSize(b) {
+    const n = b.length, be16 = i => b[i] << 8 | b[i + 1], le16 = i => b[i] | b[i + 1] << 8;
+    const be32 = i => b[i] * 0x1000000 + (b[i + 1] << 16 | b[i + 2] << 8 | b[i + 3]);
+    const le24 = i => b[i] | b[i + 1] << 8 | b[i + 2] << 16, le32 = i => b[i] | b[i + 1] << 8 | b[i + 2] << 16 | b[i + 3] << 24;
+    const is = (i, s) => i + s.length <= n && [...s].every((c, k) => b[i + k] === c.charCodeAt(0));
+    const size = (type, w, h) => ({ type, w, h });
+    if (n >= 4 && b[0] === 0xFF && b[1] === 0xD8) {   // JPEG: the frame header (SOF0-15, not DHT/JPG/DAC)
+      for (let i = 2; i + 4 <= n;) {
+        if (b[i] !== 0xFF) return null;
+        const m = b[i + 1];
+        if (m === 0xFF) { i++; continue; }   // fill byte
+        if (m === 0x01 || m === 0xD8 || (m >= 0xD0 && m <= 0xD7)) { i += 2; continue; }   // markers without a length
+        if (m === 0xD9 || m === 0xDA) return null;   // image end or scan data before any frame header
+        const len = be16(i + 2);
+        if (len < 2) return null;
+        if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) return i + 9 <= n ? size('jpeg', be16(i + 7), be16(i + 5)) : null;
+        i += 2 + len;
+      }
+      return null;
+    }
+    if (n >= 24 && is(0, '\x89PNG\r\n\x1a\n') && is(12, 'IHDR')) return size('png', be32(16), be32(20));
+    if (n >= 30 && is(0, 'RIFF') && is(8, 'WEBP')) {
+      if (is(12, 'VP8X')) return size('webp', 1 + le24(24), 1 + le24(27));
+      if (is(12, 'VP8L') && b[20] === 0x2F) return size('webp', 1 + (le16(21) & 0x3FFF), 1 + ((b[22] >> 6 | b[23] << 2 | b[24] << 10) & 0x3FFF));
+      if (is(12, 'VP8 ') && b[23] === 0x9D && b[24] === 0x01 && b[25] === 0x2A) return size('webp', le16(26) & 0x3FFF, le16(28) & 0x3FFF);
+      return null;
+    }
+    if (n >= 10 && (is(0, 'GIF87a') || is(0, 'GIF89a'))) return size('gif', le16(6), le16(8));
+    if (n >= 26 && is(0, 'BM')) {
+      if (le32(14) === 12) return size('bmp', le16(18), le16(20));   // the oldest header: 16-bit sizes
+      return size('bmp', Math.abs(le32(18)), Math.abs(le32(22)));   // a negative height means top-down
+    }
+    if (n >= 12 && is(4, 'ftyp')) {   // HEIF/HEIC/AVIF: the largest 'ispe' (image size) property near the start
+      let best = null;
+      for (let i = 8, end = Math.min(n, 1 << 20) - 16; i <= end; i++) {
+        if (b[i] !== 0x69 || !is(i, 'ispe')) continue;
+        const w = be32(i + 8), h = be32(i + 12);
+        if (!best || w * h > best.w * best.h) best = size('heif', w, h);
+      }
+      return best;
+    }
+    return null;
+  }
+  // the size, when the header says it is over the limit; null otherwise
+  function tooLarge(bytes) {
+    const s = pictureSize(bytes);
+    return s && s.w * s.h > MAX_PIXELS ? s : null;
+  }
+
+  const api = { MAX_PIXELS, pictureSize, tooLarge, maxMin, paperMap, toGray, shrink, detectPage, defaultQuad, outputSize, warp, homography, estimateSkew, rotate, rotate90, filter, flattenGray, bilevel, order };
   root.FlatbedScan = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

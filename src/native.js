@@ -9,6 +9,7 @@ const NATIVE = !!(window.Capacitor && typeof window.Capacitor.isNativePlatform =
 const nativeCall = (plugin, method, opts) => window.Capacitor.nativePromise(plugin, method, opts || {});
 const nativeOn = (plugin, event, cb) => window.Capacitor.addListener(plugin, event, cb);
 const CHUNK = 384 * 1024;   // bytes per bridge call (sent as base64)
+const NATIVE_MAX = 60 * 1024 * 1024;   // same limit as the page (MAX_BYTES in app.js): larger files are never read
 const toB64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
 const fromB64 = s => { const b = atob(s || ''), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; };
 const FlatbedNative = NATIVE ? {
@@ -28,18 +29,23 @@ const FlatbedNative = NATIVE ? {
         await nativeCall('Flatbed', 'shareChunk', { index: k, name: f.name, data: toB64(f.bytes.subarray(i, i + CHUNK)), first: i === 0, last: i + CHUNK >= f.bytes.length });
     await nativeCall('Flatbed', 'shareSend', { count: files.length, mimes: files.map(f => f.mime || 'application/octet-stream') });
   },
-  // read files the native side holds (photos taken, picked or shared) in pieces
+  // read files the native side holds (photos taken, picked or shared) in pieces.
+  // A file over the limit is not read (it could run the app out of memory): it is passed on with its size only, and the
+  // page shows "too large". The size Android reports is checked first; reading also stops at the limit, in case it was wrong.
   async readHeld(list) {
     const out = [];
     for (const it of list || []) {
+      const name = it.name || 'photo', mime = it.mime || '';
+      if (+it.size > NATIVE_MAX) { out.push({ name, bytes: null, size: +it.size, mime }); continue; }
       const parts = []; let offset = 0;
       for (;;) {
         const c = await nativeCall('Flatbed', 'readShared', { id: it.id, offset, length: CHUNK });
         const u = fromB64(c && c.data); parts.push(u); offset += u.length;
-        if (!c || c.eof || !u.length) break;
+        if (!c || c.eof || !u.length || offset > NATIVE_MAX) break;
       }
+      if (offset > NATIVE_MAX) { out.push({ name, bytes: null, size: offset, mime }); continue; }
       const bytes = new Uint8Array(offset); let o = 0; for (const p of parts) { bytes.set(p, o); o += p.length; }
-      out.push({ name: it.name || 'photo', bytes, mime: it.mime || '' });
+      out.push({ name, bytes, mime });
     }
     await nativeCall('Flatbed', 'clearShared').catch(() => {});
     return out;

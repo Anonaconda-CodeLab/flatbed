@@ -67,6 +67,7 @@
       let skipped = 0;
       for (const it of list) {
         if (state.pages.length >= MAX_PAGES) { skipped++; continue; }
+        if (!(it instanceof Blob) && !it.bytes) { toast(`A photo is too large (over ${size(MAX_BYTES)}).`); continue; }   // not read (Android)
         const blob = it instanceof Blob ? it : new Blob([it.bytes], { type: it.mime || 'image/jpeg' });
         if (blob.size > MAX_BYTES) { toast(`A photo is too large (over ${size(MAX_BYTES)}).`); continue; }
         if (state.result) clearResult();

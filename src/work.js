@@ -12,10 +12,15 @@
      { cmd: 'forget', key }        -> {}                        frees the decoded photo */
 (function () {
   'use strict';
-  const S = self.FlatbedScan, cache = new Map();
+  const S = self.FlatbedScan, cache = new Map(), sized = new Set();
 
   async function bitmap(key, blob) {
     if (cache.has(key)) { const b = cache.get(key); cache.delete(key); cache.set(key, b); return b; }
+    if (!sized.has(key)) {   // the size from the file's header first: a picture too large to decode is never decoded
+      const big = S.tooLarge(new Uint8Array(await blob.arrayBuffer()));
+      if (big) throw new Error(`This picture is too large to open: ${big.w} × ${big.h} pixels (${Math.round(big.w * big.h / 1e6)} megapixels; the limit is ${S.MAX_PIXELS / 1e6}).`);
+      sized.add(key);
+    }
     let b;
     try { b = await createImageBitmap(blob, { imageOrientation: 'from-image' }); }
     catch (e) { throw new Error('This picture could not be opened. Photos in HEIC format need converting to JPEG first.'); }
@@ -78,7 +83,7 @@
         let r = [{}, []];
         if (m.cmd === 'detect') r = [await detect(m), []];
         else if (m.cmd === 'render') r = await render(m);
-        else if (m.cmd === 'forget') { const b = cache.get(m.key); if (b) { b.close(); cache.delete(m.key); } }
+        else if (m.cmd === 'forget') { const b = cache.get(m.key); if (b) { b.close(); cache.delete(m.key); } sized.delete(m.key); }
         else throw new Error('unknown command');
         self.postMessage({ id: m.id, ok: true, result: r[0] }, r[1]);
       } catch (err) {

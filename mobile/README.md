@@ -12,8 +12,8 @@ Native code is small and lives in `android/app/src/main/java/com/anonacondacodel
 
 The app has **no internet permission, no camera permission and no other permissions** (internet is removed in the
 manifest, and the build checks for it). A photo from the camera app is written to a private `camera/` folder in the
-app's cache through a temporary grant and deleted once read. Shared PDFs are written to a private `share/` folder,
-emptied before each share, and exposed only to the app chosen in the share sheet.
+app's cache through a temporary grant and deleted once read (and when the app starts, if it was closed before). Shared PDFs are written to a private `share/` folder,
+emptied before each share and when the app starts, and exposed only to the app chosen in the share sheet.
 
 ## Building
 
@@ -34,14 +34,22 @@ release APK is unsigned, and Android will not install an unsigned APK. To sign y
 keytool -genkeypair -v -keystore my-release.jks -alias mykey -keyalg RSA -keysize 4096 -validity 10000
 export LEADONE_KEYSTORE=$PWD/my-release.jks LEADONE_KEY_ALIAS=mykey
 export LEADONE_KEYSTORE_PASSWORD=... LEADONE_KEY_PASSWORD=...
-cd android && ./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
+cd mobile/android && ./gradlew assembleRelease     # from the repository root; app/build/outputs/apk/release/app-release.apk
 ```
 
 A build signed with your own key cannot install over the official app (Android checks the signature).
 
 ## Releases
 
-Pushing a version tag (`git tag v0.1.0 && git push origin v0.1.0`, matching `package.json`), or running the *Android APK*
-workflow by hand with **release** ticked, builds the APK, checks that it has no internet permission and that it is
-signed with the published key (`certSha256` in `../build.mjs`), and publishes a GitHub release with the APK, its
-SHA-256 checksum and the changelog entry.
+Releases are made by running the *Android APK* workflow by hand on `main` with **release** ticked (Actions → Android
+APK → Run workflow, or `gh workflow run android.yml --ref main -f release=true`). Pushing a tag does nothing: the
+workflow creates the `v<version>` tag itself, from `package.json`. It works in three separate jobs:
+
+1. **Build** (read-only access): builds the web app and an *unsigned* APK. npm and Gradle never see the signing key,
+   its password or a token that could write to the repository.
+2. **Sign** (read-only access): signs that APK with the studio's key using `apksigner`, then checks that it has no
+   internet permission and that it is signed with the published key (`certSha256` in `../build.mjs`). The key is kept
+   in the protected `signing` environment, so every signed build waits for the owner's approval.
+3. **Publish** (the only job that can write): publishes the GitHub release with the APK, its SHA-256 checksum and the
+   changelog entry, or on an ordinary push to `main` the `android-test` pre-release. A run started by hand on another
+   branch (such as `test`) publishes nothing: the signed APK is attached to the run instead.

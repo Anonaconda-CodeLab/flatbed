@@ -12,7 +12,15 @@ const text = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '');   // the pa
 
 test('page blocks all network access', () => {
   const csp = /http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html)[1];
-  for (const d of ["default-src 'none'", "connect-src 'none'", 'worker-src blob:', "form-action 'none'", "frame-src 'none'", "media-src 'none'", "object-src 'none'"]) assert.ok(csp.includes(d), d);
+  // directive by directive: each appears once, and the blocking ones are exactly 'none' (nothing added after it)
+  const dirs = new Map();
+  for (const part of csp.split(';').map(x => x.trim()).filter(Boolean)) {
+    const [name, ...values] = part.split(/\s+/);
+    assert.ok(!dirs.has(name), `${name} appears once`);
+    dirs.set(name, values.join(' '));
+  }
+  for (const d of ['default-src', 'connect-src', 'form-action', 'frame-src', 'media-src', 'object-src']) assert.equal(dirs.get(d), "'none'", d);
+  assert.equal(dirs.get('worker-src'), 'blob:');
   assert.ok(!/'unsafe-eval'/.test(csp), 'no JavaScript eval (only WebAssembly)');
   assert.ok(!/<script[^>]+src=/i.test(html), 'no external scripts');
   assert.ok(!/sourceMappingURL/.test(html), 'no source map reference');
@@ -80,5 +88,45 @@ test('Cloudflare Pages headers: no framing, no connections, camera only for this
   assert.match(h, /Permissions-Policy: camera=\(self\), microphone=\(\)/);
   assert.match(h, /https:\/\/:project\.pages\.dev\/\*\n  X-Robots-Tag: noindex/);
   assert.ok(!existsSync(new URL('../netlify.toml', import.meta.url)), 'no Netlify settings left');
-  assert.match(html, /made by one person, with no ads or tracking/);
+  assert.match(html, /No ads, no tracking\. If you find this app useful, please consider <a [^>]+>making a small donation<\/a> to help fund development\. Thank you!/);
+  assert.ok(!/made by one person/.test(html), 'the old donation line is gone');
+});
+
+test('Android app: shared files only from other apps, saving only where chosen, limits before reading, cache emptied', () => {
+  const j = file('mobile/android/app/src/main/java/com/anonacondacodelab/flatbed/FlatbedPlugin.java').toString();
+  const take = j.slice(j.indexOf('private boolean takeIntent'), j.indexOf('@PluginMethod', j.indexOf('private boolean takeIntent')));
+  assert.equal((take.match(/got\.add\(u\)/g) || []).length, 3, 'three places take shared addresses');
+  assert.equal((take.match(/if \(acceptable\(u\)\) got\.add\(u\)/g) || []).length, 3, 'each one checks the address');
+  assert.match(j, /SCHEME_CONTENT\.equals\(u\.getScheme\(\)\)\s*&& !\(getContext\(\)\.getPackageName\(\) \+ "\.fileprovider"\)\.equals\(u\.getAuthority\(\)\)/);
+  assert.match(j, /openOutputStream\(target, "wt"\)/);
+  assert.ok(!/openOutputStream\(Uri\.parse/.test(j), 'never writes to an address the page passes');
+  const load = j.slice(j.indexOf('public void load()'), j.indexOf('}', j.indexOf('public void load()')));
+  assert.match(load, /deleteTree\(shareDir\(\)\)/);
+  assert.match(load, /tidyCameraDir\(\)/);
+  // the Android side reads no more than the page accepts
+  const nat = file('src/native.js').toString(), app = file('src/app.js').toString();
+  assert.equal(/NATIVE_MAX = ([\d *]+);/.exec(nat)[1].trim(), /MAX_BYTES = ([\d *]+);/.exec(app)[1].trim());
+  assert.match(nat, /if \(\+it\.size > NATIVE_MAX\)/);
+});
+
+test('release workflow: three jobs, key only in the approved signing step, pinned actions', () => {
+  const w = file('.github/workflows/android.yml').toString();
+  assert.ok(!/tags:/.test(w), 'pushing a tag starts nothing');
+  assert.match(w, /^permissions:\n  contents: read$/m);
+  assert.equal((w.match(/contents: write/g) || []).length, 1, 'write access in one job only');
+  const jobs = Object.fromEntries(w.slice(w.indexOf('\njobs:\n')).split(/\n(?=  [a-z]+:\n)/).slice(1).map(p => [p.trim().split(':')[0], p]));
+  assert.deepEqual(Object.keys(jobs), ['build', 'sign', 'publish']);
+  const { build, sign, publish } = jobs;
+  assert.ok(!/secrets\./.test(build + publish), 'the key is used in the sign job only');
+  assert.match(sign, /environment: signing/);
+  assert.match(sign, /tr -d '\[:space:\]' \| base64 -d/);
+  assert.match(sign, /to the 'signing' environment \(Settings > Environments > signing\)/, 'missing-key message points to the environment');
+  assert.ok(!/npm |gradlew|node /.test(sign), 'the sign job runs no repository code');
+  assert.match(build, /retention-days: 30/);
+  for (const f of ['android.yml', 'ci.yml']) {
+    const uses = file('.github/workflows/' + f).toString().match(/uses: \S+/g);
+    for (const u of uses) assert.match(u, /@[0-9a-f]{40}$/, `${f}: ${u} pinned to a commit`);
+  }
+  assert.ok(!/persist-credentials: true/.test(w));
+  assert.equal((w.match(/actions\/checkout@/g) || []).length, (w.match(/persist-credentials: false/g) || []).length);
 });

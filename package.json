@@ -1,6 +1,6 @@
 {
   "name": "flatbed",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Scan documents into clean, searchable PDFs: page detection, straightening, clean-up and text recognition, entirely on your device.",
   "private": true,
   "type": "module",

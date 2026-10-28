@@ -44,7 +44,19 @@ public class FlatbedPlugin extends Plugin {
 
     @Override
     public void load() {
+        // nothing lingers in the private cache from last time: the last shared PDFs, and photos the camera app took
+        // (which can carry the place they were taken). Android would clear these only when it runs short of space.
+        deleteTree(shareDir());
+        tidyCameraDir();
         if (getActivity() != null) takeIntent(getActivity().getIntent());
+    }
+
+    /* Only files offered by other apps are taken: content:// addresses that aren't Flatbed's own files. A file://
+       address, or one of Flatbed's own files (cache/share, cache/camera), could otherwise be "shared" back in by
+       another app. Photos from the camera app reach the page by another route (takePhotoResult). */
+    private boolean acceptable(Uri u) {
+        return u != null && ContentResolver.SCHEME_CONTENT.equals(u.getScheme())
+            && !(getContext().getPackageName() + ".fileprovider").equals(u.getAuthority());
     }
 
     @Override
@@ -62,15 +74,15 @@ public class FlatbedPlugin extends Plugin {
         try {
             if (Intent.ACTION_SEND.equals(action)) {
                 Uri u = intent.getParcelableExtra(Intent.EXTRA_STREAM);
-                if (u != null) got.add(u);
+                if (acceptable(u)) got.add(u);
             } else {
                 ArrayList<Uri> list = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
-                if (list != null) for (Uri u : list) if (u != null) got.add(u);
+                if (list != null) for (Uri u : list) if (acceptable(u)) got.add(u);
             }
         } catch (Exception ignored) { }
         ClipData clip = intent.getClipData();
         if (got.isEmpty() && clip != null) {
-            for (int i = 0; i < clip.getItemCount(); i++) { Uri u = clip.getItemAt(i).getUri(); if (u != null) got.add(u); }
+            for (int i = 0; i < clip.getItemCount(); i++) { Uri u = clip.getItemAt(i).getUri(); if (acceptable(u)) got.add(u); }
         }
         intent.setAction(Intent.ACTION_MAIN);   // handled: don't take the same files again if the screen is rebuilt
         synchronized (shared) { shared.addAll(got); }
@@ -184,6 +196,22 @@ public class FlatbedPlugin extends Plugin {
        cache folder through a temporary grant, and deletes it once the page has read it. */
     private File cameraDir() { return new File(getContext().getCacheDir(), "camera"); }
 
+    /* At start: empty the camera folder. The one exception is a photo the camera app is handing back right now: if
+       Android closed Flatbed while the camera app was open, Flatbed starts again and then receives the result, so the
+       pending photo is kept (for up to an hour, in case that result never comes). */
+    private void tidyCameraDir() {
+        String path = prefs().getString("pendingPhoto", null);
+        File keep = path != null ? new File(path) : null;
+        if (keep != null && keep.exists() && System.currentTimeMillis() - keep.lastModified() > 3600_000L) keep = null;
+        if (keep == null) {
+            prefs().edit().remove("pendingPhoto").apply();
+            deleteTree(cameraDir());
+            return;
+        }
+        File[] kids = cameraDir().listFiles();
+        if (kids != null) for (File k : kids) if (!k.getAbsolutePath().equals(keep.getAbsolutePath())) deleteTree(k);
+    }
+
     @PluginMethod
     public void takePhoto(PluginCall call) {
         try {
@@ -260,6 +288,7 @@ public class FlatbedPlugin extends Plugin {
         Uri uri = result.getData() != null ? result.getData().getData() : null;
         boolean ok = result.getResultCode() == Activity.RESULT_OK && uri != null;
         if (ok) prefs().edit().putString("lastSaveUri", uri.toString()).apply();   // remembered on this phone only
+        saveTarget = ok && ContentResolver.SCHEME_CONTENT.equals(uri.getScheme()) ? uri : null;   // the only place writeChunk may write
         r.put("uri", ok ? uri.toString() : "");
         call.resolve(r);
     }
@@ -279,6 +308,9 @@ public class FlatbedPlugin extends Plugin {
     private SharedPreferences prefs() { return getContext().getSharedPreferences("flatbed", Context.MODE_PRIVATE); }
 
     private OutputStream openFile;   // stays open from the first piece to the last, so every storage provider works
+    /* The place the person just chose in the save screen. writeChunk writes there and nowhere else, once: even code
+       injected into the page (no file content can become code, but just in case) couldn't write over other files. */
+    private Uri saveTarget;
 
     @PluginMethod
     public void writeChunk(PluginCall call) {
@@ -286,8 +318,11 @@ public class FlatbedPlugin extends Plugin {
         boolean first = Boolean.TRUE.equals(call.getBoolean("first", false)), last = Boolean.TRUE.equals(call.getBoolean("last", false));
         try {
             if (first) {
-                if (openFile != null) { try { openFile.close(); } catch (Exception ignored) { } }
-                openFile = getContext().getContentResolver().openOutputStream(Uri.parse(u), "wt");
+                if (openFile != null) { try { openFile.close(); } catch (Exception ignored) { } openFile = null; }
+                Uri target = saveTarget;
+                saveTarget = null;   // one file per choice
+                if (target == null || !target.toString().equals(u)) throw new Exception("not the place chosen in the save screen");
+                openFile = getContext().getContentResolver().openOutputStream(target, "wt");
             }
             if (openFile == null) throw new Exception("could not open the file");
             openFile.write(Base64.decode(call.getString("data", ""), Base64.DEFAULT));
