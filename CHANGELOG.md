@@ -12,6 +12,9 @@ The launch version, with the Android app announced. Fixes from a private securit
   only to the place chosen in Android's save screen; a file over the 60 MB limit is refused before it is read; and
   the camera's last photo and the last shared PDFs are cleared when the app starts, instead of waiting for Android
   to clear its cache.
+- **Light text on a dark page** (a black card, a slide, a dark-mode screen) is now recognised and cleaned up properly,
+  keeping its look. Before, the clean-up took the light letters for the paper: the page came out patchy grey with
+  outlined letters, and tilted text wasn't straightened.
 - Manual: some camera apps keep their own copy of a photo in the gallery; the size limits.
 - New donation line: "No ads, no tracking. If you find this app useful, please consider making a small donation to
   help fund development. Thank you!"

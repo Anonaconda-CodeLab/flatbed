@@ -20,6 +20,9 @@
      flattenGray(img)                  -> grey image with shadows and uneven light removed (used for OCR)
      bilevel(img, strength)            -> { w, h, bits } 1 bit a pixel, 1 = white, rows padded to whole bytes (PDF)
      defaultQuad(w, h)                 -> the whole picture (used when no page edge is found)
+     lightOnDark(img)                  -> true for light text on a dark page (cleaned up inverted, then turned back)
+     invert(img)                       -> the negative (RGBA or grey)
+     finishPage(img, { skew, turns, mode, strength, out }) -> a flattened page levelled, turned and cleaned up
      pictureSize(bytes)                -> { type, w, h } read from a JPEG, PNG, WebP, GIF, BMP or HEIF header, or null
      tooLarge(bytes)                   -> { type, w, h } when the picture is over MAX_PIXELS (100 megapixels), else null */
 (function (root) {
@@ -592,6 +595,57 @@
     return { w, h, stride, bits };
   }
 
+  // ---------- light text on a dark page ----------
+  // The clean-up, straightening and text recognition all expect dark ink on light paper. A page with light text on a
+  // dark background (a black card, a slide, a dark-mode screen) is turned into dark-on-light for that work, and turned
+  // back afterwards, so the result still looks like the page. It counts as one when both hold: most of the page is the
+  // darker of its two main tones, and so is its margin (a light page with a large dark photo still has light margins).
+  function lightOnDark(img) {
+    const g = shrink(toGray(img), 400), { w, h, data } = g, n = data.length;
+    if (w < 16 || h < 16) return false;
+    const hist = new Uint32Array(256); for (let i = 0; i < n; i++) hist[data[i]]++;
+    const t = otsu(hist, n);
+    let dark = 0, sumD = 0, sumL = 0;
+    for (let i = 0; i < n; i++) { if (data[i] <= t) { dark++; sumD += data[i]; } else sumL += data[i]; }
+    if (dark === n || dark < n * 0.6) return false;
+    if (sumL / (n - dark) - sumD / dark < 60) return false;   // too little contrast to tell text from page
+    // the margin: a band from 3% to 10% of the way in (the outermost edge can still show the table)
+    const a = Math.round(Math.min(w, h) * 0.03), b = Math.round(Math.min(w, h) * 0.10), band = [];
+    for (let y = a; y < h - a; y++) for (let x = a; x < w - a; x++) {
+      if (x >= b && x < w - b && y >= b && y < h - b) continue;
+      band.push(data[y * w + x]);
+    }
+    band.sort((p, q) => p - q);
+    return band.length > 0 && band[band.length >> 1] <= t;
+  }
+  // A flattened page, finished: levelled, turned, cleaned up, as one of
+  //   out 'pgm'  -> { w, h, skew, grey }    for text recognition (always dark text on light)
+  //   out 'bits' -> { w, h, skew, stride, bits }   black and white, 1 bit a pixel, 1 = white
+  //   otherwise  -> { w, h, skew, rgba }    the look chosen with mode and strength
+  // skew is a number to use, or 'auto' to measure it. A page of light text on a dark background is worked on as
+  // dark-on-light, then turned back, so it keeps its look; inverted says whether that happened.
+  function finishPage(img, o) {
+    const inverted = lightOnDark(img);
+    if (inverted) img = invert(img);
+    const skew = o.skew === 'auto' ? estimateSkew(img) : +o.skew || 0;
+    if (skew) img = rotate(img, skew);   // the corners it adds are white here, so black on a page turned back
+    img = rotate90(img, o.turns || 0);
+    const base = { w: img.w, h: img.h, skew, inverted };
+    if (o.out === 'pgm') return Object.assign(base, { grey: flattenGray(img).data });
+    if (o.out === 'bits') {
+      const b = bilevel(img, o.strength);
+      if (inverted) for (let i = 0; i < b.bits.length; i++) b.bits[i] ^= 0xFF;   // white text again
+      return Object.assign(base, { stride: b.stride, bits: b.bits });
+    }
+    const f = filter(img, o.mode, o.strength);
+    return Object.assign(base, { rgba: (inverted ? invert(f) : f).data });
+  }
+  function invert(img) {   // RGBA or grey; a new image
+    const src = img.data, out = new Uint8ClampedArray(src.length), grey = isGray(img);
+    for (let i = 0; i < src.length; i++) out[i] = grey || (i & 3) !== 3 ? 255 - src[i] : src[i];
+    return { w: img.w, h: img.h, data: out };
+  }
+
   // ---------- picture size from the file header, before anything decodes it ----------
   // A small file can declare enormous dimensions (a one-colour 40000 x 40000 PNG is a few MB), and decoding it would
   // need gigabytes and crash the page or the app. The size is read from the header only, with every offset checked;
@@ -646,7 +700,7 @@
     return s && s.w * s.h > MAX_PIXELS ? s : null;
   }
 
-  const api = { MAX_PIXELS, pictureSize, tooLarge, maxMin, paperMap, toGray, shrink, detectPage, defaultQuad, outputSize, warp, homography, estimateSkew, rotate, rotate90, filter, flattenGray, bilevel, order };
+  const api = { MAX_PIXELS, pictureSize, tooLarge, lightOnDark, invert, finishPage, maxMin, paperMap, toGray, shrink, detectPage, defaultQuad, outputSize, warp, homography, estimateSkew, rotate, rotate90, filter, flattenGray, bilevel, order };
   root.FlatbedScan = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

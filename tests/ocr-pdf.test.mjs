@@ -40,6 +40,20 @@ test('reads English offline', () => {
   assert.ok(w.x > 30 && w.x < 70 && w.y > 30 && w.y < 60 && w.h > 20 && w.h < 60, JSON.stringify(w));
 });
 
+test('reads white text on a black page, with uneven light (worked on as dark-on-light)', async () => {
+  await import('../src/scan.js');
+  const S = globalThis.FlatbedScan, pgm = gz('./fixtures/text-en.pgm.gz');
+  const head = /^P5\n(\d+) (\d+)\n255\n/.exec(new TextDecoder().decode(pgm.subarray(0, 20))), w = +head[1], h = +head[2], px = pgm.subarray(head[0].length);
+  const rgba = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) { const v = (22 + (255 - px[i]) / 255 * 213) * (0.6 + 0.4 * (i % w) / w); rgba.set([v, v, v * 0.97, 255], i * 4); }
+  const r = S.finishPage({ w, h, data: rgba }, { skew: 0, out: 'pgm' });
+  assert.equal(r.inverted, true);
+  const hd = new TextEncoder().encode(`P5\n${r.w} ${r.h}\n255\n`), img = new Uint8Array(hd.length + r.grey.length); img.set(hd); img.set(r.grey, hd.length);
+  const t = eng.recognize(img, ['eng']).text;
+  assert.match(t, /Rental agreement for the flat/);
+  assert.match(t, /12,500 baht/);
+});
+
 test('reads Thai offline, without spaces inside words, also alongside English', () => {
   for (const langs of [['tha'], ['eng', 'tha']]) {
     const th = eng.recognize(gz('./fixtures/text-th.pgm.gz'), langs);

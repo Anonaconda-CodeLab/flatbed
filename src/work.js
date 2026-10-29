@@ -54,21 +54,15 @@
     const bw = Math.min(bmp.width, Math.ceil(Math.max(...q.map(p => p[0])))) - bx, bh = Math.min(bmp.height, Math.ceil(Math.max(...q.map(p => p[1])))) - by;
     const k = Math.min(1, 1.25 * Math.max(size.w, size.h) / longEdge(q));
     const src = pixels(bmp, k, bx, by, Math.max(1, bw), Math.max(1, bh));
-    let img = S.warp(src, q.map(([x, y]) => [(x - bx) * k, (y - by) * k]), size.w, size.h);
-    let skew = m.skew === 'auto' ? S.estimateSkew(img) : +m.skew || 0;
-    if (skew) img = S.rotate(img, skew);
-    img = S.rotate90(img, m.turns || 0);
-    const base = { w: img.w, h: img.h, skew };
+    const warped = S.warp(src, q.map(([x, y]) => [(x - bx) * k, (y - by) * k]), size.w, size.h);
+    const r = S.finishPage(warped, m), base = { w: r.w, h: r.h, skew: r.skew };
     if (m.out === 'pgm') {
-      const g = S.flattenGray(img), head = new TextEncoder().encode(`P5\n${g.w} ${g.h}\n255\n`);
-      const pgm = new Uint8Array(head.length + g.data.length); pgm.set(head); pgm.set(g.data, head.length);
+      const head = new TextEncoder().encode(`P5\n${r.w} ${r.h}\n255\n`);
+      const pgm = new Uint8Array(head.length + r.grey.length); pgm.set(head); pgm.set(r.grey, head.length);
       return [Object.assign(base, { pgm }), [pgm.buffer]];
     }
-    if (m.out === 'bits') {
-      const b = S.bilevel(img, m.strength);
-      return [Object.assign(base, { stride: b.stride, bits: b.bits }), [b.bits.buffer]];
-    }
-    img = S.filter(img, m.mode, m.strength);
+    if (m.out === 'bits') return [Object.assign(base, { stride: r.stride, bits: r.bits }), [r.bits.buffer]];
+    const img = { w: r.w, h: r.h, data: r.rgba };
     const c = new OffscreenCanvas(img.w, img.h);
     c.getContext('2d').putImageData(new ImageData(img.data, img.w, img.h), 0, 0);
     const blob = await c.convertToBlob({ type: 'image/jpeg', quality: m.quality || 0.85 });
