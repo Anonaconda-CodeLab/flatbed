@@ -6,9 +6,10 @@
 
    Messages (each with an id; the reply carries the same id):
      { cmd: 'detect', key, blob }  -> { w, h, quad }            quad null when no page edge was found
-     { cmd: 'render', key, blob, quad, turns, mode, strength, maxSide, skew, out, quality }
-         out 'jpeg' -> { w, h, skew, blob }   'bits' -> { w, h, skew, stride, bits }   'pgm' -> { w, h, skew, pgm }
+     { cmd: 'render', key, blob, quad, turns, mode, strength, maxSide, skew, out, quality, flip }
+         out 'jpeg' -> { w, h, skew, dark, blob }   'bits' -> { ..., stride, bits }   'pgm' -> { ..., pgm }
          skew: a number to use, or 'auto' to measure it (the reply says what was used)
+         dark: the page is light text on a dark background; flip: make such a page black text on white
      { cmd: 'forget', key }        -> {}                        frees the decoded photo */
 (function () {
   'use strict';
@@ -55,7 +56,7 @@
     const k = Math.min(1, 1.25 * Math.max(size.w, size.h) / longEdge(q));
     const src = pixels(bmp, k, bx, by, Math.max(1, bw), Math.max(1, bh));
     const warped = S.warp(src, q.map(([x, y]) => [(x - bx) * k, (y - by) * k]), size.w, size.h);
-    const r = S.finishPage(warped, m), base = { w: r.w, h: r.h, skew: r.skew };
+    const r = S.finishPage(warped, m), base = { w: r.w, h: r.h, skew: r.skew, dark: r.inverted };   // dark: light text on a dark page
     if (m.out === 'pgm') {
       const head = new TextEncoder().encode(`P5\n${r.w} ${r.h}\n255\n`);
       const pgm = new Uint8Array(head.length + r.grey.length); pgm.set(head); pgm.set(r.grey, head.length);

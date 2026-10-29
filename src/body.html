@@ -110,6 +110,7 @@
         <button class="btn small" id="btnRotR" aria-label="Turn right">Turn right ↻</button>
       </div>
       <label class="check"><input type="checkbox" id="optStraighten" checked><span><b>Straighten text lines</b><small>Levels the page if the lines of text are slightly tilted.</small></span></label>
+      <label class="check" id="flipRow" hidden><input type="checkbox" id="optFlip"><span><b>Black text on white</b><small>This page has light text on a dark background. Turn this on to print it without a black page.</small></span></label>
     </div>
     <div class="acts-row edit-acts">
       <button class="btn danger" id="btnDelete">Delete page</button>
@@ -124,6 +125,11 @@
     <div class="card privacy" id="privacyCard">
       <div class="priv-head"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5.5c0 4.3 3 7.9 7 9.5 4-1.6 7-5.2 7-9.5V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg><div><b>Private by default</b><span class="dev-meta">What {{APP_NAME}} leaves out of this PDF</span></div></div>
       <ul class="removed" id="removedList"></ul>
+    </div>
+
+    <div class="card note" id="darkNote" hidden>
+      <p id="darkNoteText"></p>
+      <button class="btn small" id="btnDarkAdjust">Change it</button>
     </div>
 
     <div class="card" id="optCard">

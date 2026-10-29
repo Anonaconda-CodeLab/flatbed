@@ -41,6 +41,12 @@ test('links open in the same tab; document content is kept from translators', ()
   assert.match(html, /class="page-n" translate="no"/);
 });
 
+test('dark pages: the Black text on white switch and the note on the PDF screen are in the page', () => {
+  assert.match(html, /<label class="check" id="flipRow" hidden><input type="checkbox" id="optFlip">/);
+  assert.match(html, /id="darkNote" hidden/);
+  assert.match(html, /id="btnDarkAdjust"/);
+});
+
 test('clean.js is still Unmarked\'s (update tests/clean-origin.json when copying a newer one)', () => {
   const o = JSON.parse(file('tests/clean-origin.json'));
   assert.equal(createHash('sha256').update(file('src/clean.js')).digest('hex'), o.sha256);

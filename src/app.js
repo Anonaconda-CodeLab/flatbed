@@ -47,12 +47,13 @@
   // ---------- pages ----------
   // a page: the photo (kept in memory only, never saved or sent as it is), the page's corners in it, and the look
   const skewFor = pg => pg.straighten ? (typeof pg.skew === 'number' ? pg.skew : 'auto') : 0;
-  const look = (pg, extra) => Object.assign({ quad: pg.quad, turns: pg.turns, mode: pg.mode, strength: pg.strength, skew: skewFor(pg) }, extra);
+  const look = (pg, extra) => Object.assign({ quad: pg.quad, turns: pg.turns, mode: pg.mode, strength: pg.strength, skew: skewFor(pg), flip: pg.flip }, extra);
   async function refreshThumb(pg) {
     pg.busy = true; renderPages();
     try {
       const r = await FlatbedWork.render(pg.id, pg.blob, look(pg, { maxSide: THUMB, out: 'jpeg', quality: 0.8 }));
       if (pg.straighten) pg.skew = r.skew;
+      pg.dark = !!r.dark;   // light text on a dark page: the Adjust tab offers black text on white
       if (pg.thumb) URL.revokeObjectURL(pg.thumb);
       pg.thumb = URL.createObjectURL(r.blob);
     } catch (e) { toast('Could not prepare a page: ' + (e && e.message || e)); }
@@ -71,7 +72,7 @@
         const blob = it instanceof Blob ? it : new Blob([it.bytes], { type: it.mime || 'image/jpeg' });
         if (blob.size > MAX_BYTES) { toast(`A photo is too large (over ${size(MAX_BYTES)}).`); continue; }
         if (state.result) clearResult();
-        const pg = { id: ++state.seq, blob, source, w: 0, h: 0, quad: null, found: false, turns: 0, mode: 'enhanced', strength: 0, straighten: true, skew: 'auto', thumb: '', busy: true, findings: [] };
+        const pg = { id: ++state.seq, blob, source, w: 0, h: 0, quad: null, found: false, turns: 0, mode: 'enhanced', strength: 0, straighten: true, skew: 'auto', dark: false, flip: false, thumb: '', busy: true, findings: [] };
         state.pages.push(pg); renderPages();
         try {
           // what the photo itself carries (location, phone, date...): listed on the PDF screen, never copied into the PDF
@@ -240,11 +241,12 @@
   // ---------- editing a page ----------
   const MODES = { color: '', enhanced: 'Contrast', grey: 'Contrast', bw: 'Text darkness' };
   function openEdit(pg) {
-    const d = { pg, quad: pg.quad.map(p => p.slice()), turns: pg.turns, mode: pg.mode, strength: pg.strength, straighten: pg.straighten, skew: pg.skew, url: URL.createObjectURL(pg.blob), token: 0 };
+    const d = { pg, quad: pg.quad.map(p => p.slice()), turns: pg.turns, mode: pg.mode, strength: pg.strength, straighten: pg.straighten, skew: pg.skew, dark: pg.dark, flip: pg.flip, url: URL.createObjectURL(pg.blob), token: 0 };
     state.edit = d;
     $('editTitle').textContent = `Page ${state.pages.indexOf(pg) + 1}`;
     $('cropImg').src = d.url;
     $('optStraighten').checked = d.straighten;
+    $('optFlip').checked = d.flip;
     $('strength').value = d.strength;
     show('scrEdit');
     tab(pg.found ? 'look' : 'crop');
@@ -256,8 +258,8 @@
     if ($('lookImg').src) { URL.revokeObjectURL($('lookImg').src); $('lookImg').removeAttribute('src'); }
     if (apply) {
       const pg = d.pg, moved = JSON.stringify(d.quad) !== JSON.stringify(pg.quad);
-      const changed = moved || d.turns !== pg.turns || d.mode !== pg.mode || d.strength !== pg.strength || d.straighten !== pg.straighten;
-      Object.assign(pg, { quad: d.quad, turns: d.turns, mode: d.mode, strength: d.strength, straighten: d.straighten, skew: d.skew });
+      const changed = moved || d.turns !== pg.turns || d.mode !== pg.mode || d.strength !== pg.strength || d.straighten !== pg.straighten || d.flip !== pg.flip;
+      Object.assign(pg, { quad: d.quad, turns: d.turns, mode: d.mode, strength: d.strength, straighten: d.straighten, skew: d.skew, dark: d.dark, flip: d.flip });
       if (moved) pg.found = true;
       if (changed) { if (state.result) clearResult(); refreshThumb(pg); }
     }
@@ -363,6 +365,7 @@
     for (const b of document.querySelectorAll('#modeChips .chip-btn')) b.setAttribute('aria-checked', String(b.dataset.mode === d.mode));
     $('strengthRow').hidden = !MODES[d.mode];
     $('strengthLbl').textContent = MODES[d.mode] || '';
+    $('flipRow').hidden = !d.dark || d.mode === 'color';   // only for a dark page, and never in Original
   }
   let previewTimer = 0;
   function preview(delay) {
@@ -374,9 +377,10 @@
       try {
         const max = Math.min(1800, Math.round(Math.max(600, $('scrEdit').clientWidth) * (window.devicePixelRatio || 1)));
         const skew = d.straighten ? (typeof d.skew === 'number' ? d.skew : 'auto') : 0;
-        const r = await FlatbedWork.render(d.pg.id, d.pg.blob, { quad: d.quad, turns: d.turns, mode: d.mode, strength: d.strength, skew, maxSide: max, out: 'jpeg', quality: 0.85 });
+        const r = await FlatbedWork.render(d.pg.id, d.pg.blob, { quad: d.quad, turns: d.turns, mode: d.mode, strength: d.strength, skew, flip: d.flip, maxSide: max, out: 'jpeg', quality: 0.85 });
         if (state.edit !== d || token !== d.token) return;
         if (d.straighten && skew === 'auto') d.skew = r.skew;
+        if (d.dark !== !!r.dark) { d.dark = !!r.dark; syncLook(); }   // moving the corners can change it
         const img = $('lookImg'), old = img.src;
         img.src = URL.createObjectURL(r.blob);
         if (old) URL.revokeObjectURL(old);
@@ -389,6 +393,7 @@
   $('btnRotL').onclick = () => { state.edit.turns = (state.edit.turns + 3) % 4; preview(); };
   $('btnRotR').onclick = () => { state.edit.turns = (state.edit.turns + 1) % 4; preview(); };
   $('optStraighten').onchange = () => { const d = state.edit; d.straighten = $('optStraighten').checked; if (d.straighten) d.skew = 'auto'; preview(); };
+  $('optFlip').onchange = () => { state.edit.flip = $('optFlip').checked; preview(); };
 
   // ---------- making the PDF ----------
   const OPT_KEY = 'flatbed.options';   // remembered on this device: page size, text choice, languages (no content)
@@ -447,9 +452,19 @@
   }
   const isWhole = p => { const q = p.quad; return q[0][0] < 2 && q[0][1] < 2 && q[2][0] > p.w - 2 && q[2][1] > p.h - 2; };
 
+  // dark pages left as they are (not Original): a note that black text on white prints better, with a way to change it
+  function darkNote() {
+    const n = state.result ? [] : state.pages.map((p, i) => p.dark && !p.flip && p.mode !== 'color' ? i + 1 : 0).filter(Boolean);
+    $('darkNote').hidden = !n.length;
+    if (!n.length) return;
+    const which = n.length === 1 ? `Page ${n[0]} has` : n.length === state.pages.length ? (n.length === 2 ? 'Both pages have' : 'All the pages have') : `Pages ${n.slice(0, -1).join(', ')} and ${n[n.length - 1]} have`;
+    $('darkNoteText').textContent = `${which} light text on a dark background. If you'll print the PDF, black text on white is usually better.`;
+    $('btnDarkAdjust').textContent = `Change page ${n[0]}`;
+    $('btnDarkAdjust').onclick = () => { const pg = state.pages[n[0] - 1]; if (pg && !pg.busy && !state.making) { openEdit(pg); tab('look'); } };
+  }
   $('btnExport').onclick = () => {
     if (!state.pages.length || state.pages.some(p => p.busy)) return;
-    privacyList(); syncOpts();
+    privacyList(); syncOpts(); darkNote();
     $('doneActions').hidden = !state.result; $('makeActions').hidden = !!state.result; $('optCard').hidden = !!state.result;
     show('scrExport');
   };
@@ -465,7 +480,7 @@
   function clearResult() {
     if (!state.result) return;
     state.result = null;
-    $('doneActions').hidden = true; $('makeActions').hidden = false; $('optCard').hidden = false;
+    $('doneActions').hidden = true; $('makeActions').hidden = false; $('optCard').hidden = false; darkNote();
   }
 
   $('btnMake').onclick = async () => {
@@ -512,7 +527,7 @@
       $('saveHint').textContent = NATIVE || canPickFolder() ? 'Save lets you choose the folder and name.' : 'Save puts the PDF in your browser\'s Downloads folder. Most browsers can ask where to save instead: the manual (How to scan) explains how.';
       $('textActs').hidden = $('ocrDetails').hidden = !(text && state.result.text);
       $('ocrText').textContent = state.result.text;
-      $('makeActions').hidden = true; $('optCard').hidden = true; $('doneActions').hidden = false;
+      $('makeActions').hidden = true; $('optCard').hidden = true; $('darkNote').hidden = true; $('doneActions').hidden = false;
       countUse();
     } catch (e) {
       toast('Could not make the PDF: ' + (e && e.message || e));

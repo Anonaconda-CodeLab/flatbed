@@ -70,7 +70,10 @@ screenshot or a photo that is already cropped).
 - **Black & white:** pure black text on white. The sharpest and smallest PDF for plain text documents; not for photos.
 
 **Light text on a dark page** (a black card, a slide, a screen in dark mode) keeps its look: Flatbed recognises it and
-cleans it up the same way, so the page stays dark and the text light, in every look. The text is read as usual.
+cleans it up the same way, so the page stays dark and the text light. The text is read as usual. For printing, turn on
+**Black text on white**, which appears under Adjust for such pages only: the page becomes white with black text, and
+colours keep their hue (a blue logo stays blue). Original always stays as photographed. If a PDF would have dark pages,
+the PDF screen says so, with a button to change them.
 
 The **Contrast** (or **Text darkness**) slider makes the result lighter or darker. **Turn left** and **Turn right**
 rotate the page. **Straighten text lines** levels a page whose lines are slightly tilted; turn it off for a page with

@@ -195,4 +195,7 @@ html:not(.native) .native-only{display:none}
 .progress{height:6px;border-radius:999px;background:var(--surface-2);overflow:hidden}
 .progress i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s}
 .card.disabled{opacity:.6}
+.card.note{gap:10px;margin-bottom:14px}
+.card.note p{margin:0}
+.card.note .btn{align-self:flex-start}
 .checked.warn{color:var(--med)}

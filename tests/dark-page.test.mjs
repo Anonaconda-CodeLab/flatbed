@@ -20,6 +20,12 @@ function page({ paper, ink, light = () => 1, box = null, W = 700, H = 990 }) {
   }
   return { w: W, h: H, data };
 }
+// two pictures' pixels are identical (a short message instead of a diff of millions of values)
+function same(a, b, what) {
+  assert.equal(a.length, b.length, `${what}: same size`);
+  let diff = 0, first = -1; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { diff++; if (first < 0) first = i; }
+  assert.equal(diff, 0, `${what}: ${diff} values differ, the first at ${first}`);
+}
 const falloff = x => 0.6 + 0.4 * (x / 700);   // light falls off to the left
 // grey levels of the finished page at the gaps between lines (paper) and inside the words (text), right half and left
 function measure(r) {
@@ -74,7 +80,7 @@ test('Black and white: white text on black, kept', () => {
 test('Original keeps the photo\'s own tones; text recognition gets dark text on light', () => {
   const dark = page({ paper: 22, ink: 235 });
   const orig = S.finishPage(dark, { skew: 0, mode: 'color' });
-  assert.deepEqual(orig.rgba, dark.data);
+  same(orig.rgba, dark.data, 'Original');
   const ocr = S.finishPage(dark, { skew: 0, out: 'pgm' });
   const m = measure({ w: ocr.w, h: ocr.h, rgba: Uint8ClampedArray.from({ length: ocr.grey.length * 4 }, (_, i) => ocr.grey[i >> 2]) });
   assert.ok(m.paper > 230 && m.text < 60, `dark text on light for the recognition (${m.paper.toFixed(0)} / ${m.text.toFixed(0)})`);
@@ -92,7 +98,40 @@ test('an ordinary page goes through exactly as before', () => {
   const light = page({ paper: 235, ink: 30, light: falloff });
   const r = S.finishPage(light, { skew: 0, mode: 'enhanced' });
   assert.equal(r.inverted, false);
-  assert.deepEqual(r.rgba, S.filter(light, 'enhanced', 0).data);
+  same(r.rgba, S.filter(light, 'enhanced', 0).data, 'enhanced');
   const m = measure(r);
   assert.ok(m.paper > 240 && m.text < 40, `white paper, black text (${m.paper.toFixed(0)} / ${m.text.toFixed(0)})`);
+});
+
+test('"Black text on white": a dark page becomes white paper with black text, in every look but Original', () => {
+  const dark = page({ paper: 22, ink: 235, light: falloff });
+  for (const mode of ['enhanced', 'grey']) {
+    const m = measure(S.finishPage(dark, { skew: 0, mode, flip: true }));
+    assert.ok(m.paper > 235 && m.paperSd < 8, `${mode}: white, even paper (${m.paper.toFixed(0)} ± ${m.paperSd.toFixed(0)})`);
+    assert.ok(m.text < 85, `${mode}: dark text (${m.text.toFixed(0)})`);
+  }
+  const bw = measure(S.finishPage(dark, { skew: 0, mode: 'bw', out: 'bits', flip: true }));
+  assert.ok(bw.paper > 250 && bw.text < 25, `black and white: white paper, black text (${bw.paper.toFixed(0)} / ${bw.text.toFixed(0)})`);
+  // Original is always the photo's own tones; text recognition is the same either way
+  same(S.finishPage(dark, { skew: 0, mode: 'color', flip: true }).rgba, dark.data, 'Original with flip');
+  same(S.finishPage(dark, { skew: 0, out: 'pgm', flip: true }).grey, S.finishPage(dark, { skew: 0, out: 'pgm' }).grey, 'text recognition copy');
+});
+
+test('"Black text on white" does nothing to an ordinary page', () => {
+  const light = page({ paper: 235, ink: 30, light: falloff });
+  for (const mode of ['enhanced', 'bw']) {
+    const out = mode === 'bw' ? 'bits' : undefined, a = S.finishPage(light, { skew: 0, mode, out, flip: true }), b = S.finishPage(light, { skew: 0, mode, out });
+    same(a.rgba || a.bits, b.rgba || b.bits, mode);
+  }
+});
+
+test('flipping the lightness keeps colours: a blue stamp stays blue, greys are mirrored', () => {
+  const px = (...v) => ({ w: v.length / 4, h: 1, data: Uint8ClampedArray.from(v) });
+  const f = S.flipLightness(px(40, 60, 200, 255, 30, 30, 30, 255, 200, 200, 200, 255)).data;
+  const luma = (r, g, b) => (r * 77 + g * 150 + b * 29) >> 8;
+  assert.ok(luma(f[0], f[1], f[2]) > 150, `the dark blue becomes light (${[...f.slice(0, 3)]})`);
+  assert.ok(f[2] > f[0] && f[2] > f[1], 'and stays blue, not orange as a plain negative would make it');
+  assert.deepEqual([...f.slice(4, 7)], [225, 225, 225]);
+  assert.deepEqual([...f.slice(8, 11)], [55, 55, 55]);
+  assert.equal(f[7], 255);
 });

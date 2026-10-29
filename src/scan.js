@@ -22,7 +22,9 @@
      defaultQuad(w, h)                 -> the whole picture (used when no page edge is found)
      lightOnDark(img)                  -> true for light text on a dark page (cleaned up inverted, then turned back)
      invert(img)                       -> the negative (RGBA or grey)
-     finishPage(img, { skew, turns, mode, strength, out }) -> a flattened page levelled, turned and cleaned up
+     finishPage(img, { skew, turns, mode, strength, out, flip }) -> a flattened page levelled, turned and cleaned up;
+                                          flip: a dark page as black text on white
+     flipLightness(img)                -> RGBA with brightness mirrored and colours' hue kept
      pictureSize(bytes)                -> { type, w, h } read from a JPEG, PNG, WebP, GIF, BMP or HEIF header, or null
      tooLarge(bytes)                   -> { type, w, h } when the picture is over MAX_PIXELS (100 megapixels), else null */
 (function (root) {
@@ -623,7 +625,9 @@
   //   out 'bits' -> { w, h, skew, stride, bits }   black and white, 1 bit a pixel, 1 = white
   //   otherwise  -> { w, h, skew, rgba }    the look chosen with mode and strength
   // skew is a number to use, or 'auto' to measure it. A page of light text on a dark background is worked on as
-  // dark-on-light, then turned back, so it keeps its look; inverted says whether that happened.
+  // dark-on-light, then turned back, so it keeps its look; inverted says whether that happened. With flip it is left
+  // as black text on white instead (better for printing), except in the 'color' look (Original), which is always the
+  // photo's own tones.
   function finishPage(img, o) {
     const inverted = lightOnDark(img);
     if (inverted) img = invert(img);
@@ -634,11 +638,23 @@
     if (o.out === 'pgm') return Object.assign(base, { grey: flattenGray(img).data });
     if (o.out === 'bits') {
       const b = bilevel(img, o.strength);
-      if (inverted) for (let i = 0; i < b.bits.length; i++) b.bits[i] ^= 0xFF;   // white text again
+      if (inverted && !o.flip) for (let i = 0; i < b.bits.length; i++) b.bits[i] ^= 0xFF;   // white text again
       return Object.assign(base, { stride: b.stride, bits: b.bits });
     }
-    const f = filter(img, o.mode, o.strength);
-    return Object.assign(base, { rgba: (inverted ? invert(f) : f).data });
+    let f = filter(img, o.mode, o.strength);
+    if (inverted) f = invert(f);   // the look of the page again
+    if (inverted && o.flip && o.mode !== 'color' && o.mode) f = flipLightness(f);
+    return Object.assign(base, { rgba: f.data });
+  }
+  // dark becomes light and light dark, but colours keep their hue (a blue stamp stays blue, not orange): each pixel's
+  // brightness is mirrored and its difference from grey kept. For grey pixels this is the same as invert().
+  function flipLightness(img) {
+    const d = img.data, out = new Uint8ClampedArray(d.length);
+    for (let i = 0; i < d.length; i += 4) {
+      const k = 255 - 2 * ((d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8);
+      out[i] = d[i] + k; out[i + 1] = d[i + 1] + k; out[i + 2] = d[i + 2] + k; out[i + 3] = d[i + 3];
+    }
+    return { w: img.w, h: img.h, data: out };
   }
   function invert(img) {   // RGBA or grey; a new image
     const src = img.data, out = new Uint8ClampedArray(src.length), grey = isGray(img);
@@ -700,7 +716,7 @@
     return s && s.w * s.h > MAX_PIXELS ? s : null;
   }
 
-  const api = { MAX_PIXELS, pictureSize, tooLarge, lightOnDark, invert, finishPage, maxMin, paperMap, toGray, shrink, detectPage, defaultQuad, outputSize, warp, homography, estimateSkew, rotate, rotate90, filter, flattenGray, bilevel, order };
+  const api = { MAX_PIXELS, pictureSize, tooLarge, lightOnDark, invert, flipLightness, finishPage, maxMin, paperMap, toGray, shrink, detectPage, defaultQuad, outputSize, warp, homography, estimateSkew, rotate, rotate90, filter, flattenGray, bilevel, order };
   root.FlatbedScan = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
