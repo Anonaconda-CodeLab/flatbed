@@ -93,7 +93,7 @@ test('sizes read from JPEG, PNG, WebP, GIF, BMP and HEIF headers', () => {
   assert.ok(S.tooLarge(heif));
 });
 
-test('ordinary pictures pass; damaged or unknown ones are left to the browser', () => {
+test('ordinary pictures pass; damaged headers are refused; other formats are left to the browser', () => {
   assert.equal(S.tooLarge(new Uint8Array(readFileSync(new URL('fixtures/page.jpg', import.meta.url)))), null);
   assert.equal(S.tooLarge(bombPng(8000, 6000)), null, '48 megapixels (a phone camera\'s full resolution) is fine');
   assert.ok(S.tooLarge(bombPng(12000, 9000)), '108 megapixels is not');
@@ -102,8 +102,41 @@ test('ordinary pictures pass; damaged or unknown ones are left to the browser', 
   jpg.set([0xFF, 0xD8, 0xFF, 0xE1, 0xFF, 0xFF], 0);
   jpg.set([0xFF, 0xC2, 0x00, 0x11, 0x08, 0xFF, 0xFF, 0xFF, 0xFF, 0x03], 4 + 65535);
   assert.deepEqual(S.tooLarge(jpg), { type: 'jpeg', w: 65535, h: 65535 });
-  for (const b of [new Uint8Array(0), hex('ffd8'), hex('ffd8ffe100'), hex('ffd8ffda0002'), hex('ffd8ff00'), hex('89504e470d0a1a0a'), hex('52494646'), hex('000000006674797000')]) {
+  // a recognised format whose size can't be read is refused, not passed to the decoder unchecked
+  const damaged = { jpeg: ['ffd8', 'ffd8ffe100', 'ffd8ffda0002', 'ffd8ff00', 'ffd8ffd9'], png: ['89504e470d0a1a0a', '89504e470d0a1a0a0000000d49444154'],
+    webp: ['524946460000000057454250', '5249464600000000574542505650385800'], gif: ['474946383961'], bmp: ['424d'],
+    heif: ['000000186674797068656963000000006865696300000000'] };
+  for (const [type, list] of Object.entries(damaged)) for (const h of list) {
+    assert.deepEqual(S.pictureSize(hex(h)), { type, bad: true }, h);
+    assert.deepEqual(S.tooLarge(hex(h)), { type, bad: true }, h);
+  }
+  // not a picture format checked here: the browser decides (and opens only what it knows)
+  for (const b of [new Uint8Array(0), hex('52494646'), hex('000000006674797000'), new TextEncoder().encode('%PDF-1.7 not a picture'),
+    hex('000000186674797069736f6d0000020069736f6d69736f32')]) {   // an MP4 video: same container, no image brand
     assert.equal(S.pictureSize(b), null, Buffer.from(b).toString('hex'));
   }
-  assert.equal(S.pictureSize(new TextEncoder().encode('%PDF-1.7 not a picture')), null);
+});
+
+test('headers a decoder still reads are read here too (CodeRabbit, PR #1)', () => {
+  // stray bytes before a marker, which decoders skip: the 65535 x 65535 frame header after them still counts
+  const jpg = hex('ffd8' + '00' + 'ffe0000441' + '1234' + 'ffc0001108ffffffff03');
+  assert.deepEqual(S.tooLarge(jpg), { type: 'jpeg', w: 65535, h: 65535 });
+  // HEIF/AVIF with its size property after 2 MB of picture data (boxes may come in any order)
+  const box = (w, h) => { const b = Buffer.alloc(20); b.writeUInt32BE(20); b.write('ispe', 4); b.writeUInt32BE(w, 12); b.writeUInt32BE(h, 16); return b; };
+  const avif = new Uint8Array(Buffer.concat([Buffer.from('0000001c667479706176696600000000617669666d696631', 'hex'), Buffer.alloc(4),
+    Buffer.alloc(2 * 1024 * 1024), box(30000, 20000)]));
+  assert.deepEqual(S.tooLarge(avif), { type: 'heif', w: 30000, h: 20000 });
+  // a GIF whose logical screen is tiny but whose frame reaches 20000 x 20000
+  const gif = hex('47494638396101000100' + '0000' + '00' + '2c' + '0000' + '0000' + '204e' + '204e' + '00' + '02' + '00' + '3b');
+  assert.deepEqual(S.pictureSize(gif), { type: 'gif', w: 20000, h: 20000 });
+  assert.ok(S.tooLarge(gif));
+});
+
+test('the page worker says when a picture is damaged', async () => {
+  const replies = [];
+  globalThis.self.postMessage = m => replies.push(m);
+  globalThis.self.onmessage({ data: { id: 9, cmd: 'detect', key: 9, blob: new Blob([hex('ffd8ffe1000a')]) } });
+  for (let i = 0; i < 100 && !replies.length; i++) await new Promise(r => setTimeout(r, 10));
+  assert.equal(replies[0].ok, false);
+  assert.match(replies[0].error, /could not be opened: the file is damaged/);
 });

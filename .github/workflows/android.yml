@@ -30,6 +30,8 @@ concurrency:   # a newer build replaces an older one; a release run is never can
   cancel-in-progress: ${{ !inputs.release }}
 jobs:
   build:
+    # a release run on any branch but main stops here, before anything is signed (publish checks again)
+    if: ${{ !inputs.release || github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -104,13 +106,14 @@ jobs:
           "$BT/apksigner" sign --ks "$RUNNER_TEMP/studio.jks" --ks-key-alias leadone --ks-pass env:KS_PASS --key-pass env:KS_PASS \
             --out "Flatbed-$VER.apk" unsigned.apk
           rm -f "$RUNNER_TEMP/studio.jks"
-      - name: Check the APK (no internet permission, signed with the published key)
+      - name: Check the APK (no internet or camera permission, signed with the published key)
         id: check
         run: |
           APK="Flatbed-$VER.apk"
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           "$BT/aapt2" dump permissions "$APK" | tee perms.txt
           if grep -q "android.permission.INTERNET" perms.txt; then echo "::error::INTERNET permission found"; exit 1; fi
+          if grep -q "android.permission.CAMERA" perms.txt; then echo "::error::CAMERA permission found"; exit 1; fi
           "$BT/apksigner" verify --min-sdk-version 24 "$APK"
           CERT=$("$BT/apksigner" verify --print-certs "$APK" | grep -i "certificate SHA-256 digest" | head -1 | sed 's/.*: //' | tr 'a-f' 'A-F' | sed 's/../&:/g; s/:$//')
           echo "Signing certificate SHA-256: $CERT"

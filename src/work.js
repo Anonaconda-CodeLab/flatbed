@@ -19,6 +19,7 @@
     if (cache.has(key)) { const b = cache.get(key); cache.delete(key); cache.set(key, b); return b; }
     if (!sized.has(key)) {   // the size from the file's header first: a picture too large to decode is never decoded
       const big = S.tooLarge(new Uint8Array(await blob.arrayBuffer()));
+      if (big && big.bad) throw new Error('This picture could not be opened: the file is damaged.');
       if (big) throw new Error(`This picture is too large to open: ${big.w} × ${big.h} pixels (${Math.round(big.w * big.h / 1e6)} megapixels; the limit is ${S.MAX_PIXELS / 1e6}).`);
       sized.add(key);
     }

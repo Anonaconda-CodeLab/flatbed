@@ -19,7 +19,7 @@
   inspected again before it is offered; anything still found is shown as a warning.
 - **Originals untouched.** Flatbed only reads the photos you give it.
 - **Untrusted input.** Every photo is treated as hostile. Its size is read from the file header first, and a picture
-  over 100 megapixels (or a file over 60 MB) is refused before anything decodes it, so a small file claiming enormous
+  over 100 megapixels, a file over 60 MB, or a picture whose header is damaged is refused before anything decodes it, so a small file claiming enormous
   dimensions can't exhaust memory. Photos are then decoded by the browser; files are inspected by Unmarked's
   bounds-checked parsers (compressed data unpacked only up to 64 MB, text scanned in a single pass), and all text from
   files is escaped before display. Recognised text is shown as plain text only, and written into the PDF as

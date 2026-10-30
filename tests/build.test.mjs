@@ -129,6 +129,8 @@ test('release workflow: three jobs, key only in the approved signing step, pinne
   assert.match(sign, /to the 'signing' environment \(Settings > Environments > signing\)/, 'missing-key message points to the environment');
   assert.ok(!/npm |gradlew|node /.test(sign), 'the sign job runs no repository code');
   assert.match(build, /retention-days: 30/);
+  assert.match(build, /if: \$\{\{ !inputs\.release \|\| github\.ref == 'refs\/heads\/main' \}\}/, 'a release run off main signs nothing');
+  for (const p of ['INTERNET', 'CAMERA']) assert.match(sign, new RegExp(`grep -q "android\\.permission\\.${p}" perms\\.txt; then echo "::error::${p} permission found"; exit 1`), p);
   for (const f of ['android.yml', 'ci.yml']) {
     const uses = file('.github/workflows/' + f).toString().match(/uses: \S+/g);
     for (const u of uses) assert.match(u, /@[0-9a-f]{40}$/, `${f}: ${u} pinned to a commit`);

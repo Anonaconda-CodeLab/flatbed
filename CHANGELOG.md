@@ -4,7 +4,8 @@
 The launch version, with the Android app announced. Fixes from a private security review, and the latest cleaner.
 - **Picture-size limit:** a photo is checked from its file header before it is opened, and a picture over 100
   megapixels is refused with a clear message. A small file can claim enormous dimensions (a one-colour 40000 × 40000
-  picture fits in a few MB), and opening it could crash the page or the app.
+  picture fits in a few MB), and opening it could crash the page or the app. A picture whose header is damaged, so
+  that its size can't be read, is refused too.
 - **Cleaner from Unmarked 0.1.4:** every PDF is checked with the newest version (digital signatures, XFA form
   scripts, form buttons that send data, article threads, rarer image data, compressed data over 64 MB, bounded text
   scans).
