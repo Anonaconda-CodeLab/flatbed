@@ -55,7 +55,8 @@ test('two taps: Make PDF opens the options, Save PDF makes and saves it', () => 
   // the place to save is chosen before the PDF is made (a browser opens its dialog only straight after a tap)
   const run = app.slice(app.indexOf('async function run(share)'), app.indexOf("$('btnMake').onclick"));
   assert.ok(run.indexOf('await choosePlace(name)') > 0 && run.indexOf('await choosePlace(name)') < run.indexOf('await makePdf(name)'), 'place first, then the PDF');
-  assert.match(run, /if \(!share && !place\) return;/, 'cancelling the save screen makes nothing');
+  assert.match(run, /if \(!place\) \{ state\.making = false; return; \}/, 'cancelling the save screen makes nothing');
+  assert.ok(run.indexOf('state.making = true') < run.indexOf('await choosePlace(name)'), 'busy before the save screen opens');
   assert.match(file('src/native.js').toString(), /async pickSave\(name, mime\)[\s\S]*async writeTo\(uri, bytes\)/);
 });
 

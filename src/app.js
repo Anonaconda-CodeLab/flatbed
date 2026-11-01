@@ -552,9 +552,13 @@
   async function run(share) {
     if (state.making || !state.pages.length) return;
     const btn = $('btnMake'), hint = $('makeHint'), name = pdfName();
-    const place = share ? null : await choosePlace(name);
-    if (!share && !place) return;   // the save screen was cancelled
-    state.making = true;
+    state.making = true;   // before the save screen opens, so a second tap can't start another one
+    let place = null;
+    if (!share) {
+      try { place = await choosePlace(name); }
+      catch (e) { state.making = false; toast('Could not open the save screen: ' + (e && e.message || e)); return; }
+      if (!place) { state.making = false; return; }   // the save screen was cancelled: nothing is made
+    }
     btn.disabled = true; $('btnMakeShare').disabled = true; $('optCard').classList.add('disabled'); $('exportBackRow').hidden = true;
     for (const el of $('optCard').querySelectorAll('button, input')) el.disabled = true;
     try {

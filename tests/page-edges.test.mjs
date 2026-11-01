@@ -72,9 +72,15 @@ test('no table at the edges of the flattened page', () => {
   assert.ok(dark / n < 0.01, `${(100 * dark / n).toFixed(1)}% of the edge pixels are dark`);
 });
 
-test('a page that barely stands out from the table is left where detectPage put it, not moved wildly', () => {
-  const pale = photo(W, H, TRUE, { table: 205 }), r = findPage(pale);
-  if (!r) return;   // not found at all: the whole photo is used, which is the existing behaviour
-  const q = r.fine || r.coarse;
-  q.forEach((p, i) => assert.ok(Math.hypot(p[0] - TRUE[i][0], p[1] - TRUE[i][1]) < 40, `corner ${i}: ${p.map(Math.round)}`));
+test('a side without a clear edge: the refinement gives up, so the rough outline is kept', () => {
+  // the same photo, but with a white sheet next to the page's right edge, so that side has no edge to find
+  const half = photo(W, H, TRUE);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (inside(TRUE, x + 0.5, y + 0.5)) continue;
+    const xr = TRUE[1][0] + (TRUE[2][0] - TRUE[1][0]) * y / H;   // the right edge at this height
+    if (x > xr - 40) { const o = (y * W + x) * 4; half.data[o] = half.data[o + 1] = 232; half.data[o + 2] = 227; }
+  }
+  const mid = S.shrink(half, 1600), k = mid.w / W, raw = TRUE.map(([x, y]) => [x * k, y * k]);
+  assert.equal(S.refineQuad(mid, raw, 12), null, 'no outline from three sides and a guess');
+  assert.ok(S.refineQuad(S.shrink(img, 1600), raw, 12), 'with all four edges clear, it does refine');
 });
