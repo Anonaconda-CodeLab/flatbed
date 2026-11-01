@@ -124,7 +124,7 @@ html:not(.native) .native-only{display:none}
 .pages{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}
 .page{display:flex;flex-direction:column;gap:6px;min-width:0}
 .page-thumb{position:relative;aspect-ratio:3/4;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);padding:0;overflow:hidden;display:grid;place-items:center}
-.page-thumb img{max-width:100%;max-height:100%;display:block;object-fit:contain}
+.page-thumb img{position:absolute;inset:4px;width:calc(100% - 8px);height:calc(100% - 8px);display:block;object-fit:contain}
 .page-thumb .busy-veil{position:absolute;inset:0}
 .page-bar{display:flex;align-items:center;justify-content:space-between;gap:4px}
 .page-n{font-weight:700;font-family:var(--f-mono);font-size:13px;color:var(--muted)}
