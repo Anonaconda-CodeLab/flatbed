@@ -34,13 +34,14 @@ app.
 2. Flatbed looks for the edges of the page in each photo, flattens it as if it had been on a scanner's glass, and
    levels the lines of text. The pages appear in a list.
 3. Tap a page to adjust it (see below). Use the arrows under a page to change the order.
-4. Tap **Make PDF**, choose the options, and tap **Make PDF** again.
-5. **Save** or **Share** the PDF. You can also copy the recognised text, or save it as a plain text file.
-   In Chrome or Edge on a computer, **Save** lets you choose the folder and the name. Other browsers save to their
-   Downloads folder, but most can ask each time instead: in Chrome on Android, turn on **Ask where to save files** in
+4. Tap **Make PDF** and choose the options (page size, text, file name).
+5. Tap **Save PDF**: Flatbed makes the PDF and saves it, in one go. Or tap **Share PDF instead** to send it to another
+   app. Afterwards you can save another copy, share it, copy the recognised text, or save the text as a plain file.
+   In Chrome or Edge on a computer, **Save PDF** first lets you choose the folder and the name. Other browsers save to
+   their Downloads folder, but most can ask each time instead: in Chrome on Android, turn on **Ask where to save files** in
    Chrome's settings, under **Downloads**; in Firefox on a computer, choose **Always ask you where to save files** in
    Settings, under **Files and Applications**. Firefox on Android always uses the Downloads folder; **Share** sends
-   the PDF straight to another app instead.[[android]] In the Android app, Save always lets you choose.[[/android]]
+   the PDF straight to another app instead.[[android]] In the Android app, Save PDF always lets you choose first.[[/android]]
 
 ### Taking a good photo
 

@@ -47,6 +47,18 @@ test('dark pages: the Black text on white switch and the note on the PDF screen 
   assert.match(html, /id="btnDarkAdjust"/);
 });
 
+test('two taps: Make PDF opens the options, Save PDF makes and saves it', () => {
+  assert.match(html, /<button id="btnExport" class="btn-start">(<svg[\s\S]*?<\/svg>)?<span id="btnExportLbl">Make PDF<\/span>/);
+  assert.match(html, /<button id="btnMake" class="btn-start">(<svg[\s\S]*?<\/svg>)?<span id="btnMakeLbl">Save PDF<\/span>/);
+  assert.match(html, /<button id="btnMakeShare" class="btn" hidden>Share PDF instead<\/button>/);
+  const app = file('src/app.js').toString();
+  // the place to save is chosen before the PDF is made (a browser opens its dialog only straight after a tap)
+  const run = app.slice(app.indexOf('async function run(share)'), app.indexOf("$('btnMake').onclick"));
+  assert.ok(run.indexOf('await choosePlace(name)') > 0 && run.indexOf('await choosePlace(name)') < run.indexOf('await makePdf(name)'), 'place first, then the PDF');
+  assert.match(run, /if \(!share && !place\) return;/, 'cancelling the save screen makes nothing');
+  assert.match(file('src/native.js').toString(), /async pickSave\(name, mime\)[\s\S]*async writeTo\(uri, bytes\)/);
+});
+
 test('clean.js is still Unmarked\'s (update tests/clean-origin.json when copying a newer one)', () => {
   const o = JSON.parse(file('tests/clean-origin.json'));
   assert.equal(createHash('sha256').update(file('src/clean.js')).digest('hex'), o.sha256);

@@ -13,12 +13,20 @@ const NATIVE_MAX = 60 * 1024 * 1024;   // same limit as the page (MAX_BYTES in a
 const toB64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
 const fromB64 = s => { const b = atob(s || ''), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; };
 const FlatbedNative = NATIVE ? {
-  // pick the place first (name only: Android limits what a pending call may carry), then write in pieces
-  async saveFile(name, bytes, mime) {
+  // Android's "save as" screen: the place the person chooses ('' when cancelled). Name only: Android limits what a
+  // pending call may carry. The PDF can be made after this; writeTo then writes it there (once).
+  async pickSave(name, mime) {
     const r = await nativeCall('Flatbed', 'pickSaveLocation', { name, mime: mime || 'application/octet-stream' });
-    if (!r || !r.uri) return { saved: false };
+    return r && r.uri || '';
+  },
+  async writeTo(uri, bytes) {
     for (let i = 0; i === 0 || i < bytes.length; i += CHUNK)
-      await nativeCall('Flatbed', 'writeChunk', { uri: r.uri, data: toB64(bytes.subarray(i, i + CHUNK)), first: i === 0, last: i + CHUNK >= bytes.length });
+      await nativeCall('Flatbed', 'writeChunk', { uri, data: toB64(bytes.subarray(i, i + CHUNK)), first: i === 0, last: i + CHUNK >= bytes.length });
+  },
+  async saveFile(name, bytes, mime) {
+    const uri = await this.pickSave(name, mime);
+    if (!uri) return { saved: false };
+    await this.writeTo(uri, bytes);
     return { saved: true };
   },
   // copy the files into the app's private share folder, then open Android's share sheet

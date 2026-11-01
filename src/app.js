@@ -415,6 +415,7 @@
   if (!ocrOk) opts.text = false;
 
   function syncOpts() {
+    $('btnMakeShare').hidden = !canShare();
     for (const b of document.querySelectorAll('#sizeChips .chip-btn')) b.setAttribute('aria-checked', String(b.dataset.size === opts.size));
     $('optSearchable').checked = opts.text; $('optImageOnly').checked = !opts.text;
     $('optSearchable').disabled = !ocrOk;
@@ -483,63 +484,108 @@
     $('doneActions').hidden = true; $('makeActions').hidden = false; $('optCard').hidden = false; darkNote();
   }
 
-  $('btnMake').onclick = async () => {
-    if (state.making || !state.pages.length) return;
-    state.making = true;
-    const btn = $('btnMake'), hint = $('makeHint'), n = state.pages.length, text = opts.text && ocrOk, langs = opts.langs.slice();
-    btn.disabled = true; $('optCard').classList.add('disabled'); $('exportBackRow').hidden = true;
-    for (const el of $('optCard').querySelectorAll('button, input')) el.disabled = true;
+  // ---------- making the PDF: one tap makes it and saves it (or shares it) ----------
+  // A browser opens its "save as" dialog or share sheet only straight after a tap, and making the PDF (with text
+  // recognition) takes seconds. So the place is chosen first, then the PDF is made and written there. Browsers
+  // without a dialog save to their Downloads folder once it's made. Sharing from a browser needs one more tap on the
+  // finished screen; the Android app opens its share sheet straight away.
+  async function makePdf(name) {
+    const hint = $('makeHint'), n = state.pages.length, text = opts.text && ocrOk, langs = opts.langs.slice();
     const pages = [], texts = [];
-    try {
-      for (const [i, pg] of state.pages.entries()) {
-        const base = look(pg, { maxSide: EXPORT });
-        if (base.skew === 'auto') base.skew = 0;
-        if (text) {
-          $('btnMakeLbl').textContent = `Reading page ${i + 1} of ${n}…`;
-          hint.textContent = i === 0 ? 'Text recognition runs on this device. The first page takes longest.' : '';
-          const g = await FlatbedWork.render(pg.id, pg.blob, Object.assign({}, base, { out: 'pgm' }));
-          const r = await FlatbedOcr.recognize(g.pgm, langs);
-          pages[i] = { words: r.words };
-          texts.push(r.text);
-        } else pages[i] = {};
-        $('btnMakeLbl').textContent = `Adding page ${i + 1} of ${n}…`;
-        if (pg.mode === 'bw') {
-          const r = await FlatbedWork.render(pg.id, pg.blob, Object.assign({}, base, { out: 'bits' }));
-          Object.assign(pages[i], { w: r.w, h: r.h, image: { type: 'bits', stride: r.stride, bits: r.bits } });
-        } else {
-          const r = await FlatbedWork.render(pg.id, pg.blob, Object.assign({}, base, { out: 'jpeg', quality: 0.82 }));
-          Object.assign(pages[i], { w: r.w, h: r.h, image: { type: 'jpeg', bytes: new Uint8Array(await r.blob.arrayBuffer()) } });
-        }
+    for (const [i, pg] of state.pages.entries()) {
+      const base = look(pg, { maxSide: EXPORT });
+      if (base.skew === 'auto') base.skew = 0;
+      if (text) {
+        $('btnMakeLbl').textContent = `Reading page ${i + 1} of ${n}…`;
+        hint.textContent = i === 0 ? 'Text recognition runs on this device. The first page takes longest.' : '';
+        const g = await FlatbedWork.render(pg.id, pg.blob, Object.assign({}, base, { out: 'pgm' }));
+        const r = await FlatbedOcr.recognize(g.pgm, langs);
+        pages[i] = { words: r.words };
+        texts.push(r.text);
+      } else pages[i] = {};
+      $('btnMakeLbl').textContent = `Adding page ${i + 1} of ${n}…`;
+      if (pg.mode === 'bw') {
+        const r = await FlatbedWork.render(pg.id, pg.blob, Object.assign({}, base, { out: 'bits' }));
+        Object.assign(pages[i], { w: r.w, h: r.h, image: { type: 'bits', stride: r.stride, bits: r.bits } });
+      } else {
+        const r = await FlatbedWork.render(pg.id, pg.blob, Object.assign({}, base, { out: 'jpeg', quality: 0.82 }));
+        Object.assign(pages[i], { w: r.w, h: r.h, image: { type: 'jpeg', bytes: new Uint8Array(await r.blob.arrayBuffer()) } });
       }
-      $('btnMakeLbl').textContent = 'Putting the PDF together…'; hint.textContent = '';
-      const font = Uint8Array.from(atob(FLATBED.font), c => c.charCodeAt(0));
-      const raw = await P.build({ PDFLib: PDF, font, pages, size: opts.size, text });
-      // the same cleaner as Unmarked, then a check of the result
-      const clean = (await C.clean(raw, { pdfLib: PDF })).bytes;
-      const check = await C.inspect(clean, { pdfLib: PDF });
-      const left = check.error ? null : check.findings.filter(f => C.isRemoved(f, {}));
-      state.result = { bytes: clean, name: pdfName(), text: texts.map((t, i) => n > 1 ? `--- Page ${i + 1} ---\n${t}` : t).join('\n\n').trim(), hasText: text };
-      $('doneTitle').textContent = 'Your PDF is ready';
-      $('doneSub').textContent = `${state.result.name} · ${plural(n, 'page')} · ${size(clean.length)}`;
-      $('checkLine').textContent = !left ? '' : left.length ? `Please check: still found ${left.map(f => f.label).join(', ')}.` : '✓ Checked: no hidden data in the PDF.';
-      $('checkLine').classList.toggle('warn', !!(left && left.length));
-      $('btnShare').hidden = !canShare();
-      $('saveHint').textContent = NATIVE || canPickFolder() ? 'Save lets you choose the folder and name.' : 'Save puts the PDF in your browser\'s Downloads folder. Most browsers can ask where to save instead: the manual (How to scan) explains how.';
-      $('textActs').hidden = $('ocrDetails').hidden = !(text && state.result.text);
-      $('ocrText').textContent = state.result.text;
-      $('makeActions').hidden = true; $('optCard').hidden = true; $('darkNote').hidden = true; $('doneActions').hidden = false;
+    }
+    $('btnMakeLbl').textContent = 'Putting the PDF together…'; hint.textContent = '';
+    const font = Uint8Array.from(atob(FLATBED.font), c => c.charCodeAt(0));
+    const raw = await P.build({ PDFLib: PDF, font, pages, size: opts.size, text });
+    // the same cleaner as Unmarked, then a check of the result
+    const clean = (await C.clean(raw, { pdfLib: PDF })).bytes;
+    const check = await C.inspect(clean, { pdfLib: PDF });
+    const left = check.error ? null : check.findings.filter(f => C.isRemoved(f, {}));
+    state.result = { bytes: clean, name, text: texts.map((t, i) => n > 1 ? `--- Page ${i + 1} ---\n${t}` : t).join('\n\n').trim(), hasText: text };
+    $('doneSub').textContent = `${name} · ${plural(n, 'page')} · ${size(clean.length)}`;
+    $('checkLine').textContent = !left ? '' : left.length ? `Please check: still found ${left.map(f => f.label).join(', ')}.` : '✓ Checked: no hidden data in the PDF.';
+    $('checkLine').classList.toggle('warn', !!(left && left.length));
+    $('btnShare').hidden = !canShare();
+    $('textActs').hidden = $('ocrDetails').hidden = !(text && state.result.text);
+    $('ocrText').textContent = state.result.text;
+  }
+  function showDone(title, hint) {
+    $('doneTitle').textContent = title;
+    $('saveHint').textContent = hint || '';
+    $('btnSave').textContent = state.result && state.result.saved ? 'Save a copy' : 'Save';
+    $('makeActions').hidden = true; $('optCard').hidden = true; $('darkNote').hidden = true; $('doneActions').hidden = false;
+    window.scrollTo(0, 0);
+  }
+  // the place to save, chosen before the PDF is made: { native: uri } | { handle } | { download: true } | null (cancelled)
+  async function choosePlace(name) {
+    if (NATIVE) { const uri = await FlatbedNative.pickSave(name, 'application/pdf'); return uri ? { native: uri } : null; }
+    if (canPickFolder()) {
+      try { return { handle: await window.showSaveFilePicker({ suggestedName: name, id: 'flatbed-save', startIn: 'documents', types: [TYPES['application/pdf']] }) }; }
+      catch (e) { if (e && e.name === 'AbortError') return null; }   // cancelled: nothing is made
+    }
+    return { download: true };   // the browser saves to its Downloads folder
+  }
+  async function writeTo(place, r) {
+    if (place.native) await FlatbedNative.writeTo(place.native, r.bytes);
+    else if (place.handle) { const w = await place.handle.createWritable(); await w.write(new Blob([r.bytes], { type: 'application/pdf' })); await w.close(); r.name = place.handle.name; }
+    else download(r.name, r.bytes, 'application/pdf');
+    r.saved = true;
+  }
+  async function run(share) {
+    if (state.making || !state.pages.length) return;
+    const btn = $('btnMake'), hint = $('makeHint'), name = pdfName();
+    const place = share ? null : await choosePlace(name);
+    if (!share && !place) return;   // the save screen was cancelled
+    state.making = true;
+    btn.disabled = true; $('btnMakeShare').disabled = true; $('optCard').classList.add('disabled'); $('exportBackRow').hidden = true;
+    for (const el of $('optCard').querySelectorAll('button, input')) el.disabled = true;
+    try {
+      await makePdf(name);
       countUse();
+      const r = state.result, pages = plural(state.pages.length, 'page');
+      if (share) {
+        try {
+          if (NATIVE) { await FlatbedNative.share([{ name: r.name, bytes: r.bytes, mime: 'application/pdf' }]); r.saved = true; showDone('Your PDF is ready'); }
+          else showDone('Your PDF is ready', 'Tap Share to send it.');   // a browser needs a fresh tap for its share sheet
+        } catch (e) { showDone('Your PDF is ready'); if (!e || e.name !== 'AbortError') toast('Could not share: ' + (e && e.message || e)); }
+      } else {
+        try {
+          await writeTo(place, r);
+          $('doneSub').textContent = `${r.name} · ${pages} · ${size(r.bytes.length)}`;
+          showDone(place.download ? 'Your PDF is downloaded' : 'Your PDF is saved', place.download ? 'It\'s in your browser\'s Downloads folder. Most browsers can ask where to save instead: the manual (How to scan) explains how.' : '');
+        } catch (e) { showDone('Your PDF is ready', 'It wasn\'t saved. Tap Save to try again.'); toast('Could not save: ' + (e && e.message || e)); }
+      }
     } catch (e) {
       toast('Could not make the PDF: ' + (e && e.message || e));
     } finally {
       FlatbedOcr.stop();   // frees the memory the text recognition used; it starts again when needed
       state.making = false;
-      btn.disabled = false; $('btnMakeLbl').textContent = 'Make PDF'; hint.textContent = '';
+      btn.disabled = false; $('btnMakeShare').disabled = false; $('btnMakeLbl').textContent = 'Save PDF'; hint.textContent = '';
       $('optCard').classList.remove('disabled'); $('exportBackRow').hidden = false;
       for (const el of $('optCard').querySelectorAll('button, input')) el.disabled = false;
       syncOpts();
     }
-  };
+  }
+  $('btnMake').onclick = () => run(false);
+  $('btnMakeShare').onclick = () => run(true);
 
   // ---------- saving and sharing ----------
   function download(name, bytes, mime) {
@@ -572,7 +618,7 @@
   }
   const webShareOk = () => { try { return !!(navigator.canShare && navigator.canShare({ files: [new File([new Uint8Array(1)], 'x.pdf', { type: 'application/pdf' })] })); } catch (e) { return false; } };
   const canShare = () => NATIVE || webShareOk();
-  $('btnSave').onclick = () => { const r = state.result; if (r) saveAs(r.name, r.bytes, 'application/pdf'); };
+  $('btnSave').onclick = async () => { const r = state.result; if (!r) return; await saveAs(r.name, r.bytes, 'application/pdf'); $('btnSave').textContent = r.saved ? 'Save a copy' : 'Save'; };
   $('btnShare').onclick = async () => {
     const r = state.result; if (!r) return;
     try {

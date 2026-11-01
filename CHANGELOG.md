@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1
+- **Make PDF, then Save PDF:** two taps instead of three. On the options screen, **Save PDF** makes the PDF and saves
+  it in one go (it asks where to save first, where the browser or the Android app can); **Share PDF instead** sends it
+  to another app. The finished screen confirms it and offers another copy, Share, and the recognised text.
+- **Pages are no longer cut off at the edges.** Flatbed now finds each edge of the paper exactly, on a larger copy of
+  the photo, and trims only a fraction of a millimetre. Before, it trimmed about 2% all round, which could cut off a
+  form's footer printed close to the edge.
+
 ## 1.0.0
 The launch version, with the Android app announced. Fixes from a private security review, and the latest cleaner.
 - **Picture-size limit:** a photo is checked from its file header before it is opened, and a picture over 100

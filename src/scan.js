@@ -10,7 +10,8 @@
    API (all on the global FlatbedScan):
      toGray(img)                       -> grey image
      shrink(img, maxSide)              -> smaller copy (area average), same kind (RGBA or grey)
-     detectPage(grey)                  -> { quad: [[x,y] x4 tl,tr,br,bl], score } or null
+     detectPage(grey)                  -> { quad: [[x,y] x4 tl,tr,br,bl], score, raw, tol } or null
+     refineQuad(img, raw, tol)         -> the page's corners made exact on a larger copy (raw, tol from detectPage)
      outputSize(quad, maxSide)         -> { w, h }  size of the flattened page
      warp(img, quad, w, h)             -> RGBA image of the quad, flattened to w x h
      estimateSkew(grey)                -> the correction in degrees, for rotate(); 0 if level or unsure
@@ -234,6 +235,8 @@
     }
     if (!best) best = brightPage(g, e);
     if (!best) return null;
+    best.raw = best.quad.map(([x, y]) => [x / scale, y / scale]);   // the outline as found, for refineQuad
+    best.tol = 3 / scale;   // how far off that can be, in the caller's pixels (about 3 px at the small size)
     // edges are found on the boundary itself: pull the corners in a little so no strip of table is left at the edges
     const cx = best.quad.reduce((a, p) => a + p[0], 0) / 4, cy = best.quad.reduce((a, p) => a + p[1], 0) / 4;
     // (the edge lines were thickened by a pixel to join them up, so the hull sits about 2 px outside the page)
@@ -283,6 +286,76 @@
     const sup = support(oq, e, w, h);
     if (sup < 0.4) return null;
     return { quad: oq, score: area * sup, support: sup, area };
+  }
+  // The page's outline, made exact on a larger copy of the photo. detectPage works at about 480 px, where one pixel is
+  // several of the photo's, and pulls its corners well in so no table shows; on a form with text close to the edge
+  // that cut off the footer. Here each side is moved to the brightness step nearest the found outline (within tol
+  // pixels), measured at many points along it, a straight line is fitted, and the corners are where the lines meet.
+  // The result is pulled in by INSET px more (at 1600 px, a fraction of a millimetre on an A4 page). null when a side
+  // has no clear step or the result is implausible: the caller then keeps detectPage's outline.
+  const INSET = 1.5;
+  function refineQuad(img, raw, tol) {
+    const { w, h, data } = img, grey = isGray(img);
+    const at = (x, y) => {   // bilinear grey value
+      x = clamp(x, 0, w - 1.001); y = clamp(y, 0, h - 1.001);
+      const x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0;
+      const v = i => grey ? data[i] : (data[i * 4] * 77 + data[i * 4 + 1] * 150 + data[i * 4 + 2] * 29) >> 8;
+      const a = v(y0 * w + x0), b = v(y0 * w + x0 + 1), c = v((y0 + 1) * w + x0), d = v((y0 + 1) * w + x0 + 1);
+      return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
+    };
+    const cx = raw.reduce((s, p) => s + p[0], 0) / 4, cy = raw.reduce((s, p) => s + p[1], 0) / 4;
+    const R = Math.max(3, Math.round(tol)), N = 64, lines = [];
+    for (let i = 0; i < 4; i++) {
+      const a = raw[i], b = raw[(i + 1) % 4], len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      const ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len;
+      let nx = -uy, ny = ux;   // the normal pointing away from the page's centre
+      if (((a[0] + b[0]) / 2 - cx) * nx + ((a[1] + b[1]) / 2 - cy) * ny < 0) { nx = -nx; ny = -ny; }
+      // each sample: the offset along the normal with the strongest step between 4 px inside and 4 px outside
+      const pts = [];
+      for (let k = 0; k < N; k++) {
+        const t = 0.03 + 0.94 * k / (N - 1), px = a[0] + (b[0] - a[0]) * t, py = a[1] + (b[1] - a[1]) * t;
+        let best = 0, off = 0;
+        for (let o = -R; o <= R; o++) {
+          let inn = 0, out = 0;
+          for (let j = 1; j <= 4; j++) { inn += at(px + nx * (o - j), py + ny * (o - j)); out += at(px + nx * (o + j), py + ny * (o + j)); }
+          const r = (inn - out) / 4;
+          if (Math.abs(r) > Math.abs(best)) { best = r; off = o; }
+        }
+        if (Math.abs(best) >= 12) pts.push({ t, off, sign: Math.sign(best) });
+      }
+      // the paper is lighter than the table, or darker: keep the samples that agree with most of them
+      const pos = pts.filter(p => p.sign > 0).length, keep = pts.filter(p => p.sign === (pos * 2 >= pts.length ? 1 : -1));
+      let fit = null;
+      if (keep.length >= N * 0.4) {
+        const med = keep.map(p => p.off).sort((x, y) => x - y)[keep.length >> 1];
+        const inl = keep.filter(p => Math.abs(p.off - med) <= 4);
+        if (inl.length >= N * 0.3) {   // a straight line through them: offset = c0 + c1 * t
+          const n = inl.length, st = inl.reduce((s, p) => s + p.t, 0), so = inl.reduce((s, p) => s + p.off, 0);
+          const stt = inl.reduce((s, p) => s + p.t * p.t, 0), sto = inl.reduce((s, p) => s + p.t * p.off, 0), dn = n * stt - st * st;
+          const c1 = dn > 1e-9 ? (n * sto - st * so) / dn : 0, c0 = (so - c1 * st) / n;
+          // paper is rarely flat, so its edge wavers by a few pixels: the line goes to the inner part of the edge (all but
+          // the innermost tenth of the samples are on or outside it), so no table shows where the edge dips in
+          const res = inl.map(p => p.off - (c0 + c1 * p.t)).sort((x, y) => x - y), lo = Math.min(0, res[Math.floor(res.length * 0.1)]);
+          fit = [c0 + lo - INSET, c0 + c1 + lo - INSET];   // offsets at both ends of the side
+        }
+      }
+      if (!fit) return null;   // no clear edge on this side: the caller keeps detectPage's outline for the page
+      lines.push([[a[0] + nx * fit[0], a[1] + ny * fit[0]], [b[0] + nx * fit[1], b[1] + ny * fit[1]]]);
+    }
+    // corner i is where side i-1 (ending there) meets side i (starting there)
+    const meet = (p, q) => {
+      const [[x1, y1], [x2, y2]] = p, [[x3, y3], [x4, y4]] = q, d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+      if (Math.abs(d) < 1e-9) return null;
+      const u = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / d;
+      return [x1 + u * (x2 - x1), y1 + u * (y2 - y1)];
+    };
+    const q = [];
+    for (let i = 0; i < 4; i++) {
+      const c = meet(lines[(i + 3) % 4], lines[i]);
+      if (!c || Math.hypot(c[0] - raw[i][0], c[1] - raw[i][1]) > tol * 3) return null;   // implausible: keep the coarse result
+      q.push([clamp(c[0], 0, w), clamp(c[1], 0, h)]);
+    }
+    return angleOk(q) ? q : null;
   }
   const defaultQuad = (w, h) => [[0, 0], [w, 0], [w, h], [0, h]];   // no page found: keep the whole picture
 
@@ -746,7 +819,7 @@
     return s && (s.bad || s.w * s.h > MAX_PIXELS) ? s : null;
   }
 
-  const api = { MAX_PIXELS, pictureSize, tooLarge, lightOnDark, invert, flipLightness, finishPage, maxMin, paperMap, toGray, shrink, detectPage, defaultQuad, outputSize, warp, homography, estimateSkew, rotate, rotate90, filter, flattenGray, bilevel, order };
+  const api = { MAX_PIXELS, pictureSize, tooLarge, lightOnDark, invert, flipLightness, finishPage, refineQuad, maxMin, paperMap, toGray, shrink, detectPage, defaultQuad, outputSize, warp, homography, estimateSkew, rotate, rotate90, filter, flattenGray, bilevel, order };
   root.FlatbedScan = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -45,7 +45,12 @@
   async function detect({ key, blob }) {
     const bmp = await bitmap(key, blob), k = Math.min(1, 480 / Math.max(bmp.width, bmp.height));
     const r = S.detectPage(pixels(bmp, k));
-    return { w: bmp.width, h: bmp.height, quad: r ? r.quad.map(([x, y]) => [x / k, y / k]) : null };
+    if (!r) return { w: bmp.width, h: bmp.height, quad: null };
+    // then the exact edges on a larger copy (about 1600 px), so text near the paper's edge isn't cut off
+    const k2 = Math.min(1, 1600 / Math.max(bmp.width, bmp.height)), f = k2 / k;
+    const fine = S.refineQuad(pixels(bmp, k2), r.raw.map(([x, y]) => [x * f, y * f]), r.tol * f);
+    const quad = fine ? fine.map(([x, y]) => [x / k2, y / k2]) : r.quad.map(([x, y]) => [x / k, y / k]);
+    return { w: bmp.width, h: bmp.height, quad };
   }
 
   async function render(m) {
