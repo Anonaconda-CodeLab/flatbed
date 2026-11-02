@@ -62,7 +62,7 @@ test('two taps: Make PDF opens the options, Save PDF makes and saves it', () => 
 
 test('web version: links to the Android app, hidden in the app itself', () => {
   const on = /androidPage:\s*true/.test(file('build.mjs').toString());
-  if (!on) { assert.ok(!/web-only/.test(text)); return; }
+  if (!on) { assert.ok(!/class="[^"]*\bweb-only\b/.test(html), 'no Android app links'); assert.ok(!/href="\/android\.html"/.test(html)); return; }
   // home screen, right under the privacy line, and About, next to Source code
   assert.match(html, /<p class="trust">[\s\S]*?Nothing leaves this device\.[\s\S]*?<\/p>\s*<p class="web-only app-link"><a href="\/android\.html">Also available as an Android app →<\/a><\/p>/);
   assert.match(html, /<a class="btn web-only" href="\/android\.html">Android app<\/a><a class="btn" href="[^"]+" rel="noopener noreferrer">Source code<\/a>/);
