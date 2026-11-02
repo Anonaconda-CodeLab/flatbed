@@ -89,6 +89,10 @@ a.btn.coffee{background:#72a4f2;border-color:#5a8fe0;color:#10213f}
 .thanks{color:var(--muted);font-size:14px;line-height:1.5;margin:4px 4px 6px;text-align:center}
 .thanks a{color:var(--fg);font-weight:500;text-underline-offset:3px}
 html:not(.native) .native-only{display:none}
+html.native .web-only{display:none}
+.app-link{margin:0;font-size:14px}
+.app-link a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--line);padding-bottom:1px}
+.app-link a:hover,.app-link a:focus-visible{color:var(--fg);border-bottom-color:currentColor}
 .uses ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:14px}
 .limits{border-color:color-mix(in srgb,var(--med) 45%,var(--line))}
 .limits-title{margin:0;font-size:16px;font-weight:700}

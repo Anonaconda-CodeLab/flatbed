@@ -39,8 +39,11 @@ const about = `<div class="card" id="aboutCard">
       <div><div class="dev-name">About ${APP.APP_NAME}</div><div class="dev-meta">Version ${APP.VERSION}${BUILD ? ` · build ${BUILD}` : ''} · free and open source (GNU GPL v3) · runs entirely on this device</div></div>
       <p class="dev-meta" style="margin:0">© 2026 Anonaconda Code Lab. You may use, share and modify this app under the GNU General Public License v3 or later; it comes with no warranty. Text recognition by Tesseract (Apache License 2.0).</p>
       ${contact ? `<p class="dev-meta" style="margin:0">Questions or problems: <a href="mailto:${contact}">${contact}</a>. A description or a screenshot of the app is usually enough; please don't send the documents you were scanning.</p>` : ''}
-      <div class="acts-row"><button id="btnHelp2" class="btn">User manual</button>${appUrl && PROJECT.androidPage ? `<a class="btn native-only" href="${appUrl}/android.html?v=${APP.VERSION}" rel="noopener noreferrer">Check for updates</a>` : ''}${repo ? `<a class="btn" href="${repo}" rel="noopener noreferrer">Source code</a>` : ''}${kofi ? `<a class="btn coffee" href="${kofi}" rel="noopener noreferrer">☕ Support on Ko-fi</a>` : ''}</div>
+      <div class="acts-row"><button id="btnHelp2" class="btn">User manual</button>${appUrl && PROJECT.androidPage ? `<a class="btn native-only" href="${appUrl}/android.html?v=${APP.VERSION}" rel="noopener noreferrer">Check for updates</a>` : ''}${PROJECT.androidPage ? '<a class="btn web-only" href="/android.html">Android app</a>' : ''}${repo ? `<a class="btn" href="${repo}" rel="noopener noreferrer">Source code</a>` : ''}${kofi ? `<a class="btn coffee" href="${kofi}" rel="noopener noreferrer">☕ Support on Ko-fi</a>` : ''}</div>
     </div>`;
+
+// on the web only (hidden in the Android app): where to get the Android app, under the home screen's privacy line
+const androidLink = PROJECT.androidPage ? '<p class="web-only app-link"><a href="/android.html">Also available as an Android app →</a></p>' : '';
 
 // gentle donation card after a PDF is made, shown at a few usage milestones only (see app.js); same as the studio's other apps
 const donate = kofi ? `<div id="donateCard" class="card donate" hidden>
@@ -86,7 +89,8 @@ const manual = md(manualText);
 const b64 = f => bin(f).toString('base64');
 const langChips = PROJECT.languages.map(([c, n]) => `<button type="button" class="chip-btn" data-lang="${c}" aria-pressed="false" translate="no">${n}</button>`).join('');
 const fill = s => s.replace(/\{\{(APP_NAME|VERSION|APP_URL|APP_HOST)\}\}/g, (_, k) => APP[k]).replace('{{ABOUT}}', about).replace('{{DONATE}}', donate)
-  .replace('{{THANKS}}', thanks).replace('{{LANG_CHIPS}}', langChips).replace('{{MANUAL}}', () => manual);
+  .replace('{{THANKS}}', thanks).replace('{{LANG_CHIPS}}', langChips).replace('{{MANUAL}}', () => manual)
+  .replace('{{ANDROID_LINK}}', androidLink);
 
 const fonts = `@font-face{font-family:"Instrument Sans";font-style:normal;font-display:swap;font-weight:400 700;font-stretch:75% 100%;src:url(data:font/woff2;base64,${b64('fonts/InstrumentSans-latin-variable.woff2')}) format("woff2-variations")}
 @font-face{font-family:"IBM Plex Mono";font-style:normal;font-display:swap;font-weight:400;src:url(data:font/woff2;base64,${b64('fonts/IBMPlexMono-latin-400.woff2')}) format("woff2")}
@@ -136,6 +140,7 @@ const page = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${CSP}">
 <meta name="referrer" content="no-referrer">
+<script>try{if(window.Capacitor&&Capacitor.isNativePlatform())document.documentElement.classList.add('native')}catch(e){}</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#a3541b">
 <link rel="manifest" href="manifest.webmanifest">
@@ -144,7 +149,7 @@ const page = `<!doctype html>
 <meta name="description" content="${DESC}">
 ${title}
 ${seo}
-<style>html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
+<style>html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}html.native .web-only{display:none!important}</style>
 ${css}
 </head><body>
 ${body}

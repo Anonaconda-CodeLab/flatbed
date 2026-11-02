@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2
+- The web version points to the Android app: a link under "Nothing leaves this device" on the home screen, and an
+  **Android app** button in About, next to Source code. Neither appears in the Android app itself.
+- Android build: the Gradle download is checked against its published SHA-256 checksum.
+
 ## 1.0.1
 - **Make PDF, then Save PDF:** two taps instead of three. On the options screen, **Save PDF** makes the PDF and saves
   it in one go (it asks where to save first, where the browser or the Android app can); **Share PDF instead** sends it

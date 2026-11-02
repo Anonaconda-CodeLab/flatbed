@@ -60,6 +60,25 @@ test('two taps: Make PDF opens the options, Save PDF makes and saves it', () => 
   assert.match(file('src/native.js').toString(), /async pickSave\(name, mime\)[\s\S]*async writeTo\(uri, bytes\)/);
 });
 
+test('web version: links to the Android app, hidden in the app itself', () => {
+  const on = /androidPage:\s*true/.test(file('build.mjs').toString());
+  if (!on) { assert.ok(!/web-only/.test(text)); return; }
+  // home screen, right under the privacy line, and About, next to Source code
+  assert.match(html, /<p class="trust">[\s\S]*?Nothing leaves this device\.[\s\S]*?<\/p>\s*<p class="web-only app-link"><a href="\/android\.html">Also available as an Android app →<\/a><\/p>/);
+  assert.match(html, /<a class="btn web-only" href="\/android\.html">Android app<\/a><a class="btn" href="[^"]+" rel="noopener noreferrer">Source code<\/a>/);
+  // hidden in the APK: the class is set in the head, before anything is drawn, and the rule is in the first style
+  const head = html.slice(0, html.indexOf('</head>'));
+  assert.match(head, /<script>try\{if\(window\.Capacitor&&Capacitor\.isNativePlatform\(\)\)document\.documentElement\.classList\.add\('native'\)\}catch\(e\)\{\}<\/script>/);
+  assert.match(head, /html\.native \.web-only\{display:none!important\}/);
+  assert.ok(existsSync(new URL('../dist/android.html', import.meta.url)), 'the page it links to is built');
+});
+
+test('the Gradle download is checked against a known hash', () => {
+  const gw = file('mobile/android/gradle/wrapper/gradle-wrapper.properties').toString();
+  assert.match(gw, /^distributionUrl=https\\:\/\/services\.gradle\.org\/distributions\/gradle-8\.14\.3-all\.zip$/m);
+  assert.match(gw, /^distributionSha256Sum=ed1a8d686605fd7c23bdf62c7fc7add1c5b23b2bbc3721e661934ef4a4911d7c$/m);
+});
+
 test('clean.js is still Unmarked\'s (update tests/clean-origin.json when copying a newer one)', () => {
   const o = JSON.parse(file('tests/clean-origin.json'));
   assert.equal(createHash('sha256').update(file('src/clean.js')).digest('hex'), o.sha256);
