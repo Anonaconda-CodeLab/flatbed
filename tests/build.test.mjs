@@ -104,7 +104,7 @@ test('Android-only licences (Capacitor, Cordova, AndroidX, Kotlin): in licences-
     assert.ok(and.includes(s), s);
   for (const s of ['Drifty', 'Capacitor', 'AndroidX', 'Kotlin', 'Cordova']) assert.ok(!web.includes(s), `${s} is not in the web licences`);
   // on the screen, in a block that only the Android app shows (html:not(.native) .native-only is hidden)
-  assert.match(html, /<div class="native-only"><h2 class="licences-head">In the Android app<\/h2><section class="lic" id="lic-a1"><h3>Capacitor 8\.5\.3[^<]*<\/h3><pre class="licences" translate="no">[^<]*Copyright \(c\) 2017-present Drifty Co\./);
+  assert.match(html, /<div class="native-only"><h2 class="licences-head">In the Android app<\/h2><section class="lic" id="lic-a1" tabindex="-1"><h3>Capacitor 8\.5\.3[^<]*<\/h3><pre class="licences" translate="no">[^<]*Copyright \(c\) 2017-present Drifty Co\./);
   assert.match(html, /<div class="native-only"><p>Added by the Android app:<\/p><ul class="lic-list"><li><a href="#lic-a1" data-lic="lic-a1">Capacitor 8\.5\.3/);
   assert.match(text, /html:not\(\.native\) \.native-only\{display:none\}/);
   // the versions named match what the APK is built with
@@ -114,17 +114,24 @@ test('Android-only licences (Capacitor, Cordova, AndroidX, Kotlin): in licences-
 });
 
 test('Licences screen: a list first, every component with its licence, each jumping to its text and back', () => {
-  const toc = html.slice(html.indexOf('<div id="licTop" class="lic-toc">'), html.indexOf('</div>', html.indexOf('<div id="licTop" class="lic-toc">')));
+  const toc = html.slice(html.indexOf('<div id="licTop" class="lic-toc"'), html.indexOf('</div>', html.indexOf('<div id="licTop" class="lic-toc"')));
   assert.ok(toc.length > 100, 'the list comes first');
-  assert.ok(html.indexOf('id="licTop"') < html.indexOf('<section class="lic" id="lic-1">'), 'before the texts');
+  assert.ok(html.indexOf('id="licTop"') < html.indexOf('<section class="lic" id="lic-1"'), 'before the texts');
   for (const [n, l] of [['Leptonica (in tesseract.js-core)', 'BSD 2-Clause'], ['tesseract.js-core 6.1.2 and Tesseract', 'Apache License 2.0'], ['pdf-lib 1.17.1', 'MIT'],
     ['IBM Plex Mono typeface', 'SIL Open Font License 1.1']])
     assert.match(toc, new RegExp(`<li><a href="#(lic-\\d+)" data-lic="\\1">${n.replace(/[.()]/g, '\\$&')}</a><span>${l}</span></li>`), n);
   // every link points at a text that exists, and every text has its way back
   const ids = [...html.matchAll(/data-lic="(lic-a?\d+)"/g)].map(m => m[1]);
-  for (const id of new Set(ids)) assert.match(html, new RegExp(`<section class="lic" id="${id}">`), id);
+  for (const id of new Set(ids)) assert.match(html, new RegExp(`<section class="lic" id="${id}" tabindex="-1">`), id);
+  assert.match(html, /<div id="licTop" class="lic-toc" tabindex="-1">/, 'the list can take focus too');
+  // every licence text, complete, on the screen (web ones, and the Android app's own)
+  const screen = html.slice(html.indexOf('<section id="scrLicences"'), html.indexOf('</section>\n', html.lastIndexOf('<section class="lic"')));
+  const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  for (const f of ['vendor/LICENSE-tesseract.txt', 'vendor/LICENSE-leptonica.txt', 'vendor/LICENSE-pdf-lib.md', 'vendor/LICENSE-pdf-lib-standard-fonts.md',
+    'vendor/LICENSE-upng.txt', 'vendor/LICENSE-pako.txt', 'fonts/OFL-InstrumentSans.txt', 'fonts/OFL-IBMPlexMono.txt', 'vendor/LICENSE-capacitor.txt', 'vendor/NOTICE-cordova.txt'])
+    assert.ok(screen.includes(`<pre class="licences" translate="no">${esc(file('src/' + f).toString().replace(/\r\n/g, '\n').trim())}</pre>`), f);
   assert.equal((html.match(/<section class="lic" id=/g) || []).length, (html.match(/data-lic="licTop">↑ Back to the list/g) || []).length);
-  assert.match(file('src/app.js').toString(), /a\[data-lic\][\s\S]{0,200}scrollIntoView/);
+  assert.match(file('src/app.js').toString(), /a\[data-lic\][\s\S]{0,200}scrollIntoView\(\{ block: 'start' \}\);[^\n]*\n\s*t\.focus\(\{ preventScroll: true \}\)/);
 });
 
 test('clean.js is still Unmarked\'s (update tests/clean-origin.json when copying a newer one)', () => {

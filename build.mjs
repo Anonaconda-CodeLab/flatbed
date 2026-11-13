@@ -94,9 +94,9 @@ function licencesHtml() {
   const web = licenceGroups(LICENCES, 'lic-'), and = licenceGroups(LICENCES_ANDROID, 'lic-a');
   const list = groups => '<ul class="lic-list">' + groups.flatMap(g => g.items.map(([n, l]) =>
     `<li><a href="#${g.id}" data-lic="${g.id}">${escHtml(n)}</a><span>${escHtml(l)}</span></li>`)).join('') + '</ul>';
-  const texts = groups => groups.map(g => `<section class="lic" id="${g.id}"><h3>${g.names.map(escHtml).join('<br>')}</h3>` +
+  const texts = groups => groups.map(g => `<section class="lic" id="${g.id}" tabindex="-1"><h3>${g.names.map(escHtml).join('<br>')}</h3>` +
     `<pre class="licences" translate="no">${escHtml(g.text)}</pre><a class="lic-top" href="#licTop" data-lic="licTop">↑ Back to the list</a></section>`).join('');
-  return `<div id="licTop" class="lic-toc"><p>${APP.APP_NAME} ${APP.VERSION} itself: GNU General Public License v3 or later. Built into it:</p>${list(web)}` +
+  return `<div id="licTop" class="lic-toc" tabindex="-1"><p>${APP.APP_NAME} ${APP.VERSION} itself: GNU General Public License v3 or later. Built into it:</p>${list(web)}` +
     `<div class="native-only"><p>Added by the Android app:</p>${list(and)}</div></div>` +
     texts(web) + `<div class="native-only"><h2 class="licences-head">In the Android app</h2>${texts(and)}</div>`;
 }

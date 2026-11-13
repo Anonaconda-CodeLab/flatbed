@@ -35,7 +35,9 @@
     if (!a) return;
     e.preventDefault();
     const t = $(a.dataset.lic);
-    if (t) t.scrollIntoView({ block: 'start' });   // straight there: the texts are long, so a smooth scroll takes seconds
+    if (!t) return;
+    t.scrollIntoView({ block: 'start' });   // straight there: the texts are long, so a smooth scroll takes seconds
+    t.focus({ preventScroll: true });       // keyboard and screen-reader users go on from the text (tabindex="-1")
   });
   window.flatbedBack = () => {   // Android Back button: go back inside the app; on the home screen, let Android handle it
     const scr = document.body.dataset.screen || 'scrHome';

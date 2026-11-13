@@ -216,3 +216,4 @@ html.native .web-only{display:none}
 .lic{scroll-margin-top:12px;margin-bottom:22px}
 .lic h3{font-size:15px;margin:0 0 8px;line-height:1.4}
 .lic-top{display:inline-block;margin-top:8px;font-size:14px;color:var(--muted)}
+.lic:focus,.lic-toc:focus{outline:none}
