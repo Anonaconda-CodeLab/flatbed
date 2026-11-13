@@ -65,14 +65,27 @@ const LICENCES = [
   ['UPNG, as @pdf-lib/upng 1.0.1 (in pdf-lib)', 'vendor/LICENSE-upng.txt'], ['pako 1.0.11 (in pdf-lib; its zlib parts are under the zlib licence)', 'vendor/LICENSE-pako.txt'],
   ['Instrument Sans typeface', 'fonts/OFL-InstrumentSans.txt'], ['IBM Plex Mono typeface', 'fonts/OFL-IBMPlexMono.txt']
 ];
-const licenceGroups = [];
-for (const [name, f] of LICENCES) {
-  const text = src(f).replace(/\r\n/g, '\n').trim();
-  const g = licenceGroups.find(x => x.text === text);
-  if (g) g.names.push(name); else licenceGroups.push({ names: [name], text });
+// only in the Android app (web users don't get this code): shown on the Licences screen in the app only, and written
+// to licences-android.txt next to the page (which, like everything in dist/, goes into the APK)
+const LICENCES_ANDROID = [
+  ['Capacitor 8.5.3 (@capacitor/android and @capacitor/core)', 'vendor/LICENSE-capacitor.txt'],
+  ['Apache Cordova Android framework 14.0.1 (in Capacitor)', 'vendor/LICENSE-tesseract.txt'],
+  ['AndroidX libraries (appcompat, core, core-splashscreen, activity, fragment, coordinatorlayout, webkit, and the libraries they use)', 'vendor/LICENSE-tesseract.txt'],
+  ['Kotlin standard library (used by AndroidX)', 'vendor/LICENSE-tesseract.txt'],
+  ['Apache Cordova: its NOTICE file', 'vendor/NOTICE-cordova.txt']
+];
+const rule = '='.repeat(78);
+function licenceText(list, intro) {
+  const groups = [];
+  for (const [name, f] of list) {
+    const text = src(f).replace(/\r\n/g, '\n').trim();
+    const g = groups.find(x => x.text === text);
+    if (g) g.names.push(name); else groups.push({ names: [name], text });
+  }
+  return intro + groups.map(g => `${rule}\n${g.names.join('\n')}\n${rule}\n\n${g.text}\n`).join('\n');
 }
-const licencesTxt = `${APP.APP_NAME} ${APP.VERSION}: licences of the components built into the app.\n${APP.APP_NAME} itself: GNU General Public License v3 or later (the LICENSE file in the source code).\n\n` +
-  licenceGroups.map(g => `${'='.repeat(78)}\n${g.names.join('\n')}\n${'='.repeat(78)}\n\n${g.text}\n`).join('\n');
+const licencesTxt = licenceText(LICENCES, `${APP.APP_NAME} ${APP.VERSION}: licences of the components built into the app.\n${APP.APP_NAME} itself: GNU General Public License v3 or later (the LICENSE file in the source code).\n\n`);
+const licencesAndroidTxt = licenceText(LICENCES_ANDROID, `${APP.APP_NAME} ${APP.VERSION}, Android app: licences of the components it adds to the web app (those are in licences.txt).\n\n`);
 
 const bin = f => readFileSync(join(root, 'src', f));
 
@@ -111,7 +124,7 @@ const b64 = f => bin(f).toString('base64');
 const langChips = PROJECT.languages.map(([c, n]) => `<button type="button" class="chip-btn" data-lang="${c}" aria-pressed="false" translate="no">${n}</button>`).join('');
 const fill = s => s.replace(/\{\{(APP_NAME|VERSION|APP_URL|APP_HOST)\}\}/g, (_, k) => APP[k]).replace('{{ABOUT}}', about).replace('{{DONATE}}', donate)
   .replace('{{THANKS}}', thanks).replace('{{LANG_CHIPS}}', langChips).replace('{{MANUAL}}', () => manual)
-  .replace('{{ANDROID_LINK}}', androidLink).replace('{{LICENCES}}', () => escHtml(licencesTxt));
+  .replace('{{ANDROID_LINK}}', androidLink).replace('{{LICENCES}}', () => escHtml(licencesTxt)).replace('{{LICENCES_ANDROID}}', () => escHtml(licencesAndroidTxt));
 
 const fonts = `@font-face{font-family:"Instrument Sans";font-style:normal;font-display:swap;font-weight:400 700;font-stretch:75% 100%;src:url(data:font/woff2;base64,${b64('fonts/InstrumentSans-latin-variable.woff2')}) format("woff2-variations")}
 @font-face{font-family:"IBM Plex Mono";font-style:normal;font-display:swap;font-weight:400;src:url(data:font/woff2;base64,${b64('fonts/IBMPlexMono-latin-400.woff2')}) format("woff2")}
@@ -204,6 +217,7 @@ if (PROJECT.androidPage) writeFileSync(join(root, 'dist', 'android.html'), src('
 // add what a <meta> tag can't (no framing by other sites) and a second, header-level block on all connections. A
 // browser applies both policies, so a page is only ever allowed what both permit.
 writeFileSync(join(root, 'dist', 'licences.txt'), licencesTxt);
+writeFileSync(join(root, 'dist', 'licences-android.txt'), licencesAndroidTxt);
 writeFileSync(join(root, 'dist', '_headers'), `/*
   Content-Security-Policy: connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   Referrer-Policy: no-referrer

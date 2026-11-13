@@ -29,3 +29,14 @@ The **Android app** (built from `mobile/`) also includes:
 
 Test images in `tests/fixtures/` were made with Pillow (`make-fixtures.py`) and the DejaVu and TLWG Loma fonts; the
 tools and fonts themselves are not part of the app.
+
+### Android app only
+The APK adds these (web users don't get this code). Their texts are on the Licences screen in the Android app and in
+`licences-android.txt` next to the page.
+
+| Component | Version | Licence |
+|---|---|---|
+| [Capacitor](https://capacitorjs.com) (`@capacitor/android`, `@capacitor/core`) | 8.5.3 | MIT ([src/vendor/LICENSE-capacitor.txt](src/vendor/LICENSE-capacitor.txt)) |
+| [Apache Cordova Android](https://cordova.apache.org) framework, used by Capacitor | 14.0.1 | Apache-2.0, with its NOTICE ([src/vendor/NOTICE-cordova.txt](src/vendor/NOTICE-cordova.txt)) |
+| [AndroidX](https://developer.android.com/jetpack/androidx) libraries (appcompat, core, core-splashscreen, activity, fragment, coordinatorlayout, webkit) | see `mobile/android/variables.gradle` | Apache-2.0 |
+| [Kotlin](https://kotlinlang.org) standard library, used by AndroidX | | Apache-2.0 |

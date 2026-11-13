@@ -204,3 +204,4 @@ html.native .web-only{display:none}
 .card.note .btn{align-self:flex-start}
 .checked.warn{color:var(--med)}
 .licences{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--f-mono);font-size:12px;line-height:1.5;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;margin:0}
+.licences-head{font-size:16px;margin:22px 0 10px}

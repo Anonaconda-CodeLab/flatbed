@@ -97,6 +97,21 @@ test('licence texts ship with the app: the Licences screen and licences.txt (Cod
   assert.match(file('NOTICE.md').toString(), /Leptonica: BSD-2-Clause \(\[src\/vendor\/LICENSE-leptonica\.txt\]/);
 });
 
+test('Android-only licences (Capacitor, Cordova, AndroidX, Kotlin): in licences-android.txt and on the Licences screen in the app only', () => {
+  const and = dist('licences-android.txt'), web = dist('licences.txt');
+  for (const s of ['Copyright (c) 2017-present Drifty Co.', 'Capacitor 8.5.3', 'Apache Cordova Android framework 14.0.1', 'AndroidX libraries',
+    'Kotlin standard library', 'Copyright 2015-2020 The Apache Software Foundation', 'TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION'])
+    assert.ok(and.includes(s), s);
+  for (const s of ['Drifty', 'Capacitor', 'AndroidX', 'Kotlin', 'Cordova']) assert.ok(!web.includes(s), `${s} is not in the web licences`);
+  // on the screen, in a block that only the Android app shows (html:not(.native) .native-only is hidden)
+  assert.match(html, /<div class="native-only">\s*<h2 class="licences-head">In the Android app<\/h2>\s*<pre class="licences" translate="no">[^<]*Copyright \(c\) 2017-present Drifty Co\./);
+  assert.match(text, /html:not\(\.native\) \.native-only\{display:none\}/);
+  // the versions named match what the APK is built with
+  const pkg = JSON.parse(file('mobile/package.json').toString());
+  assert.equal(pkg.dependencies['@capacitor/android'], '8.5.3');
+  assert.match(file('mobile/android/variables.gradle').toString(), /cordovaAndroidVersion = '14\.0\.1'/);
+});
+
 test('clean.js is still Unmarked\'s (update tests/clean-origin.json when copying a newer one)', () => {
   const o = JSON.parse(file('tests/clean-origin.json'));
   assert.equal(createHash('sha256').update(file('src/clean.js')).digest('hex'), o.sha256);
