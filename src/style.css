@@ -205,3 +205,14 @@ html.native .web-only{display:none}
 .checked.warn{color:var(--med)}
 .licences{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--f-mono);font-size:12px;line-height:1.5;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;margin:0}
 .licences-head{font-size:16px;margin:22px 0 10px}
+.lic-toc{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:18px}
+.lic-toc p{margin:6px 0 8px;color:var(--muted);font-size:14px}
+.lic-list{list-style:none;margin:0;padding:0}
+.lic-list li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;padding:9px 0;border-top:1px solid var(--line)}
+.lic-list li:first-child{border-top:0}
+.lic-list a{color:var(--fg);text-decoration:none;font-weight:500}
+.lic-list a:hover,.lic-list a:focus-visible{text-decoration:underline}
+.lic-list span{color:var(--muted);font-size:14px}
+.lic{scroll-margin-top:12px;margin-bottom:22px}
+.lic h3{font-size:15px;margin:0 0 8px;line-height:1.4}
+.lic-top{display:inline-block;margin-top:8px;font-size:14px;color:var(--muted)}

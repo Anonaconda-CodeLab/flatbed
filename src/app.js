@@ -29,6 +29,14 @@
   $('btnHelpBack').onclick = () => show('scrAbout');
   $('btnLicences').onclick = () => show('scrLicences');
   $('btnLicencesBack').onclick = () => show('scrAbout');
+  // the list at the top jumps to a licence's text, and each text back to the list (no change to the address)
+  $('scrLicences').addEventListener('click', e => {
+    const a = e.target.closest('a[data-lic]');
+    if (!a) return;
+    e.preventDefault();
+    const t = $(a.dataset.lic);
+    if (t) t.scrollIntoView({ block: 'start' });   // straight there: the texts are long, so a smooth scroll takes seconds
+  });
   window.flatbedBack = () => {   // Android Back button: go back inside the app; on the home screen, let Android handle it
     const scr = document.body.dataset.screen || 'scrHome';
     if (scr === 'scrHome') return false;

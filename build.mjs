@@ -58,31 +58,47 @@ const escHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g
 // The licence texts of everything built in (some licences, such as Leptonica's, ask that their notice goes with every
 // copy): shown on the Licences screen and written to licences.txt next to the page, which also goes into the APK.
 // Identical texts (the Apache licence) are given once, with every component under them. Same as Redact.
+const APACHE = 'Apache License 2.0', BSD2 = 'BSD 2-Clause', MIT = 'MIT', OFL = 'SIL Open Font License 1.1';
 const LICENCES = [
-  ['tesseract.js-core 6.1.2 and Tesseract', 'vendor/LICENSE-tesseract.txt'], ['Leptonica (in tesseract.js-core)', 'vendor/LICENSE-leptonica.txt'],
-  ['Tesseract language data (tessdata_fast)', 'vendor/LICENSE-tesseract.txt'], ['Tesseract glyphless font (pdf.ttf)', 'vendor/LICENSE-tesseract.txt'],
-  ['pdf-lib 1.17.1', 'vendor/LICENSE-pdf-lib.md'], ['@pdf-lib/standard-fonts 1.0.0 (in pdf-lib)', 'vendor/LICENSE-pdf-lib-standard-fonts.md'],
-  ['UPNG, as @pdf-lib/upng 1.0.1 (in pdf-lib)', 'vendor/LICENSE-upng.txt'], ['pako 1.0.11 (in pdf-lib; its zlib parts are under the zlib licence)', 'vendor/LICENSE-pako.txt'],
-  ['Instrument Sans typeface', 'fonts/OFL-InstrumentSans.txt'], ['IBM Plex Mono typeface', 'fonts/OFL-IBMPlexMono.txt']
+  ['tesseract.js-core 6.1.2 and Tesseract', 'vendor/LICENSE-tesseract.txt', APACHE], ['Leptonica (in tesseract.js-core)', 'vendor/LICENSE-leptonica.txt', BSD2],
+  ['Tesseract language data (tessdata_fast)', 'vendor/LICENSE-tesseract.txt', APACHE], ['Tesseract glyphless font (pdf.ttf)', 'vendor/LICENSE-tesseract.txt', APACHE],
+  ['pdf-lib 1.17.1', 'vendor/LICENSE-pdf-lib.md', MIT], ['@pdf-lib/standard-fonts 1.0.0 (in pdf-lib)', 'vendor/LICENSE-pdf-lib-standard-fonts.md', MIT],
+  ['UPNG, as @pdf-lib/upng 1.0.1 (in pdf-lib)', 'vendor/LICENSE-upng.txt', MIT], ['pako 1.0.11 (in pdf-lib; its zlib parts are under the zlib licence)', 'vendor/LICENSE-pako.txt', 'MIT and zlib'],
+  ['Instrument Sans typeface', 'fonts/OFL-InstrumentSans.txt', OFL], ['IBM Plex Mono typeface', 'fonts/OFL-IBMPlexMono.txt', OFL]
 ];
 // only in the Android app (web users don't get this code): shown on the Licences screen in the app only, and written
 // to licences-android.txt next to the page (which, like everything in dist/, goes into the APK)
 const LICENCES_ANDROID = [
-  ['Capacitor 8.5.3 (@capacitor/android and @capacitor/core)', 'vendor/LICENSE-capacitor.txt'],
-  ['Apache Cordova Android framework 14.0.1 (in Capacitor)', 'vendor/LICENSE-tesseract.txt'],
-  ['AndroidX libraries (appcompat, core, core-splashscreen, activity, fragment, coordinatorlayout, webkit, and the libraries they use)', 'vendor/LICENSE-tesseract.txt'],
-  ['Kotlin standard library (used by AndroidX)', 'vendor/LICENSE-tesseract.txt'],
-  ['Apache Cordova: its NOTICE file', 'vendor/NOTICE-cordova.txt']
+  ['Capacitor 8.5.3 (@capacitor/android and @capacitor/core)', 'vendor/LICENSE-capacitor.txt', MIT],
+  ['Apache Cordova Android framework 14.0.1 (in Capacitor)', 'vendor/LICENSE-tesseract.txt', APACHE],
+  ['AndroidX libraries (appcompat, core, core-splashscreen, activity, fragment, coordinatorlayout, webkit, and the libraries they use)', 'vendor/LICENSE-tesseract.txt', APACHE],
+  ['Kotlin standard library (used by AndroidX)', 'vendor/LICENSE-tesseract.txt', APACHE],
+  ['Apache Cordova: its NOTICE file', 'vendor/NOTICE-cordova.txt', 'Apache License 2.0 notice']
 ];
 const rule = '='.repeat(78);
-function licenceText(list, intro) {
+function licenceGroups(list, prefix) {
   const groups = [];
-  for (const [name, f] of list) {
+  for (const [name, f, licence] of list) {
     const text = src(f).replace(/\r\n/g, '\n').trim();
-    const g = groups.find(x => x.text === text);
-    if (g) g.names.push(name); else groups.push({ names: [name], text });
+    let g = groups.find(x => x.text === text);
+    if (!g) groups.push(g = { id: `${prefix}${groups.length + 1}`, names: [], text });
+    g.names.push(name);
+    g.items = (g.items || []).concat([[name, licence]]);
   }
-  return intro + groups.map(g => `${rule}\n${g.names.join('\n')}\n${rule}\n\n${g.text}\n`).join('\n');
+  return groups;
+}
+const licenceText = (list, intro) => intro + licenceGroups(list, 'x').map(g => `${rule}\n${g.names.join('\n')}\n${rule}\n\n${g.text}\n`).join('\n');
+// the Licences screen: a short list first (each component and its licence, tapping one jumps to its text), then the
+// texts, each followed by a way back to the list; the Android app's own components only in the app (native-only)
+function licencesHtml() {
+  const web = licenceGroups(LICENCES, 'lic-'), and = licenceGroups(LICENCES_ANDROID, 'lic-a');
+  const list = groups => '<ul class="lic-list">' + groups.flatMap(g => g.items.map(([n, l]) =>
+    `<li><a href="#${g.id}" data-lic="${g.id}">${escHtml(n)}</a><span>${escHtml(l)}</span></li>`)).join('') + '</ul>';
+  const texts = groups => groups.map(g => `<section class="lic" id="${g.id}"><h3>${g.names.map(escHtml).join('<br>')}</h3>` +
+    `<pre class="licences" translate="no">${escHtml(g.text)}</pre><a class="lic-top" href="#licTop" data-lic="licTop">↑ Back to the list</a></section>`).join('');
+  return `<div id="licTop" class="lic-toc"><p>${APP.APP_NAME} ${APP.VERSION} itself: GNU General Public License v3 or later. Built into it:</p>${list(web)}` +
+    `<div class="native-only"><p>Added by the Android app:</p>${list(and)}</div></div>` +
+    texts(web) + `<div class="native-only"><h2 class="licences-head">In the Android app</h2>${texts(and)}</div>`;
 }
 const licencesTxt = licenceText(LICENCES, `${APP.APP_NAME} ${APP.VERSION}: licences of the components built into the app.\n${APP.APP_NAME} itself: GNU General Public License v3 or later (the LICENSE file in the source code).\n\n`);
 const licencesAndroidTxt = licenceText(LICENCES_ANDROID, `${APP.APP_NAME} ${APP.VERSION}, Android app: licences of the components it adds to the web app (those are in licences.txt).\n\n`);
@@ -124,7 +140,7 @@ const b64 = f => bin(f).toString('base64');
 const langChips = PROJECT.languages.map(([c, n]) => `<button type="button" class="chip-btn" data-lang="${c}" aria-pressed="false" translate="no">${n}</button>`).join('');
 const fill = s => s.replace(/\{\{(APP_NAME|VERSION|APP_URL|APP_HOST)\}\}/g, (_, k) => APP[k]).replace('{{ABOUT}}', about).replace('{{DONATE}}', donate)
   .replace('{{THANKS}}', thanks).replace('{{LANG_CHIPS}}', langChips).replace('{{MANUAL}}', () => manual)
-  .replace('{{ANDROID_LINK}}', androidLink).replace('{{LICENCES}}', () => escHtml(licencesTxt)).replace('{{LICENCES_ANDROID}}', () => escHtml(licencesAndroidTxt));
+  .replace('{{ANDROID_LINK}}', androidLink).replace('{{LICENCES}}', () => licencesHtml());
 
 const fonts = `@font-face{font-family:"Instrument Sans";font-style:normal;font-display:swap;font-weight:400 700;font-stretch:75% 100%;src:url(data:font/woff2;base64,${b64('fonts/InstrumentSans-latin-variable.woff2')}) format("woff2-variations")}
 @font-face{font-family:"IBM Plex Mono";font-style:normal;font-display:swap;font-weight:400;src:url(data:font/woff2;base64,${b64('fonts/IBMPlexMono-latin-400.woff2')}) format("woff2")}
