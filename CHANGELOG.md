@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3
+- **Licences:** the licence texts of everything built into Flatbed now ship with it: a **Licences** screen under
+  About, and `licences.txt` next to the page (also inside the Android app). Added the notices that were missing:
+  Leptonica (part of the text reader) and three small libraries inside pdf-lib (pako, UPNG and its standard fonts).
+
 ## 1.0.2
 - The web version points to the Android app: a link under "Nothing leaves this device" on the home screen, and an
   **Android app** button in About, next to Source code. Neither appears in the Android app itself.

@@ -79,6 +79,24 @@ test('the Gradle download is checked against a known hash', () => {
   assert.match(gw, /^distributionSha256Sum=ed1a8d686605fd7c23bdf62c7fc7add1c5b23b2bbc3721e661934ef4a4911d7c$/m);
 });
 
+test('licence texts ship with the app: the Licences screen and licences.txt (CodeRabbit on Redact: Leptonica)', () => {
+  const txt = dist('licences.txt');
+  for (const s of ['Copyright (C) 2001-2020 Leptonica', 'Apache License', 'Copyright (c) 2019 Andrew Dillon', 'Copyright (c) 2018 Andrew Dillon',
+    'Copyright (c) 2017 Photopea', 'Vitaly Puzrin', 'SIL OPEN FONT LICENSE', 'Leptonica (in tesseract.js-core)', 'pako 1.0.11', 'Instrument Sans', 'IBM Plex Mono'])
+    assert.ok(txt.includes(s), s);
+  assert.equal((txt.match(/TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION/g) || []).length, 1, 'the Apache text once, with its components listed together');
+  // every licence file in the source is in it, and every one it names exists
+  for (const f of ['vendor/LICENSE-tesseract.txt', 'vendor/LICENSE-leptonica.txt', 'vendor/LICENSE-pdf-lib.md', 'vendor/LICENSE-pdf-lib-standard-fonts.md',
+    'vendor/LICENSE-upng.txt', 'vendor/LICENSE-pako.txt', 'fonts/OFL-InstrumentSans.txt', 'fonts/OFL-IBMPlexMono.txt'])
+    assert.ok(txt.includes(file('src/' + f).toString().replace(/\r\n/g, '\n').trim()), f);
+  // the same text on the Licences screen, reached from About, with Back (and Android's Back button) to About
+  assert.match(html, /<button class="row-btn" id="btnLicences"><span>Licences<small>/);
+  assert.match(html, /id="scrLicences"[\s\S]*?<pre class="licences" translate="no">[\s\S]*Copyright \(C\) 2001-2020 Leptonica/);
+  const app = file('src/app.js').toString();
+  assert.match(app, /scr === 'scrHelp' \|\| scr === 'scrLicences' \? 'scrAbout'/);
+  assert.match(file('NOTICE.md').toString(), /Leptonica: BSD-2-Clause \(\[src\/vendor\/LICENSE-leptonica\.txt\]/);
+});
+
 test('clean.js is still Unmarked\'s (update tests/clean-origin.json when copying a newer one)', () => {
   const o = JSON.parse(file('tests/clean-origin.json'));
   assert.equal(createHash('sha256').update(file('src/clean.js')).digest('hex'), o.sha256);

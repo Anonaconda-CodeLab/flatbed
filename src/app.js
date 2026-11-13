@@ -27,13 +27,15 @@
   $('btnHelp').onclick = () => show('scrHelp');
   $('btnHelp2').onclick = () => show('scrHelp');
   $('btnHelpBack').onclick = () => show('scrAbout');
+  $('btnLicences').onclick = () => show('scrLicences');
+  $('btnLicencesBack').onclick = () => show('scrAbout');
   window.flatbedBack = () => {   // Android Back button: go back inside the app; on the home screen, let Android handle it
     const scr = document.body.dataset.screen || 'scrHome';
     if (scr === 'scrHome') return false;
     if (scr === 'scrCamera') closeCamera();
     else if (scr === 'scrEdit') closeEdit(true);
     else if (scr === 'scrExport') { if (!state.making) leaveExport(); }
-    else show(scr === 'scrHelp' ? 'scrAbout' : 'scrHome');
+    else show(scr === 'scrHelp' || scr === 'scrLicences' ? 'scrAbout' : 'scrHome');
     return true;
   };
   let toastTimer = 0;

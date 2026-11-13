@@ -37,7 +37,7 @@ const BUILD = /^[0-9a-f]{40}$/.test(process.env.LEADONE_BUILD_ID || '') ? proces
 const repo = safeUrl(PROJECT.repoUrl), kofi = /^[A-Za-z0-9_]{1,60}$/.test(PROJECT.kofi) ? 'https://ko-fi.com/' + PROJECT.kofi : '';
 const about = `<div class="card" id="aboutCard">
       <div><div class="dev-name">About ${APP.APP_NAME}</div><div class="dev-meta">Version ${APP.VERSION}${BUILD ? ` · build ${BUILD}` : ''} · free and open source (GNU GPL v3) · runs entirely on this device</div></div>
-      <p class="dev-meta" style="margin:0">© 2026 Anonaconda Code Lab. You may use, share and modify this app under the GNU General Public License v3 or later; it comes with no warranty. Text recognition by Tesseract (Apache License 2.0).</p>
+      <p class="dev-meta" style="margin:0">© 2026 Anonaconda Code Lab. You may use, share and modify this app under the GNU General Public License v3 or later; it comes with no warranty. Text recognition by Tesseract (Apache License 2.0) with Leptonica (BSD 2-Clause); all licences are under Licences.</p>
       ${contact ? `<p class="dev-meta" style="margin:0">Questions or problems: <a href="mailto:${contact}">${contact}</a>. A description or a screenshot of the app is usually enough; please don't send the documents you were scanning.</p>` : ''}
       <div class="acts-row"><button id="btnHelp2" class="btn">User manual</button>${appUrl && PROJECT.androidPage ? `<a class="btn native-only" href="${appUrl}/android.html?v=${APP.VERSION}" rel="noopener noreferrer">Check for updates</a>` : ''}${PROJECT.androidPage ? '<a class="btn web-only" href="/android.html">Android app</a>' : ''}${repo ? `<a class="btn" href="${repo}" rel="noopener noreferrer">Source code</a>` : ''}${kofi ? `<a class="btn coffee" href="${kofi}" rel="noopener noreferrer">☕ Support on Ko-fi</a>` : ''}</div>
     </div>`;
@@ -53,6 +53,27 @@ const donate = kofi ? `<div id="donateCard" class="card donate" hidden>
 const thanks = kofi ? `<p class="thanks">No ads, no tracking. If you find this app useful, please consider <a href="${kofi}" rel="noopener noreferrer">making a small donation</a> to help fund development. Thank you!</p>` : '';
 
 const src = f => readFileSync(join(root, 'src', f), 'utf8');
+const escHtml = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// The licence texts of everything built in (some licences, such as Leptonica's, ask that their notice goes with every
+// copy): shown on the Licences screen and written to licences.txt next to the page, which also goes into the APK.
+// Identical texts (the Apache licence) are given once, with every component under them. Same as Redact.
+const LICENCES = [
+  ['tesseract.js-core 6.1.2 and Tesseract', 'vendor/LICENSE-tesseract.txt'], ['Leptonica (in tesseract.js-core)', 'vendor/LICENSE-leptonica.txt'],
+  ['Tesseract language data (tessdata_fast)', 'vendor/LICENSE-tesseract.txt'], ['Tesseract glyphless font (pdf.ttf)', 'vendor/LICENSE-tesseract.txt'],
+  ['pdf-lib 1.17.1', 'vendor/LICENSE-pdf-lib.md'], ['@pdf-lib/standard-fonts 1.0.0 (in pdf-lib)', 'vendor/LICENSE-pdf-lib-standard-fonts.md'],
+  ['UPNG, as @pdf-lib/upng 1.0.1 (in pdf-lib)', 'vendor/LICENSE-upng.txt'], ['pako 1.0.11 (in pdf-lib; its zlib parts are under the zlib licence)', 'vendor/LICENSE-pako.txt'],
+  ['Instrument Sans typeface', 'fonts/OFL-InstrumentSans.txt'], ['IBM Plex Mono typeface', 'fonts/OFL-IBMPlexMono.txt']
+];
+const licenceGroups = [];
+for (const [name, f] of LICENCES) {
+  const text = src(f).replace(/\r\n/g, '\n').trim();
+  const g = licenceGroups.find(x => x.text === text);
+  if (g) g.names.push(name); else licenceGroups.push({ names: [name], text });
+}
+const licencesTxt = `${APP.APP_NAME} ${APP.VERSION}: licences of the components built into the app.\n${APP.APP_NAME} itself: GNU General Public License v3 or later (the LICENSE file in the source code).\n\n` +
+  licenceGroups.map(g => `${'='.repeat(78)}\n${g.names.join('\n')}\n${'='.repeat(78)}\n\n${g.text}\n`).join('\n');
+
 const bin = f => readFileSync(join(root, 'src', f));
 
 // minimal Markdown renderer for docs/MANUAL.md (headings, paragraphs, lists, '> ' callouts, bold, italics, code, https links)
@@ -90,7 +111,7 @@ const b64 = f => bin(f).toString('base64');
 const langChips = PROJECT.languages.map(([c, n]) => `<button type="button" class="chip-btn" data-lang="${c}" aria-pressed="false" translate="no">${n}</button>`).join('');
 const fill = s => s.replace(/\{\{(APP_NAME|VERSION|APP_URL|APP_HOST)\}\}/g, (_, k) => APP[k]).replace('{{ABOUT}}', about).replace('{{DONATE}}', donate)
   .replace('{{THANKS}}', thanks).replace('{{LANG_CHIPS}}', langChips).replace('{{MANUAL}}', () => manual)
-  .replace('{{ANDROID_LINK}}', androidLink);
+  .replace('{{ANDROID_LINK}}', androidLink).replace('{{LICENCES}}', () => escHtml(licencesTxt));
 
 const fonts = `@font-face{font-family:"Instrument Sans";font-style:normal;font-display:swap;font-weight:400 700;font-stretch:75% 100%;src:url(data:font/woff2;base64,${b64('fonts/InstrumentSans-latin-variable.woff2')}) format("woff2-variations")}
 @font-face{font-family:"IBM Plex Mono";font-style:normal;font-display:swap;font-weight:400;src:url(data:font/woff2;base64,${b64('fonts/IBMPlexMono-latin-400.woff2')}) format("woff2")}
@@ -182,6 +203,7 @@ if (PROJECT.androidPage) writeFileSync(join(root, 'dist', 'android.html'), src('
 // HTTP headers for Cloudflare Pages. The page's own Content Security Policy (in index.html) does the real work; these
 // add what a <meta> tag can't (no framing by other sites) and a second, header-level block on all connections. A
 // browser applies both policies, so a page is only ever allowed what both permit.
+writeFileSync(join(root, 'dist', 'licences.txt'), licencesTxt);
 writeFileSync(join(root, 'dist', '_headers'), `/*
   Content-Security-Policy: connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   Referrer-Policy: no-referrer
