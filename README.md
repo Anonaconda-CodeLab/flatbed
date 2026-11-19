@@ -10,7 +10,8 @@ text and makes a PDF with no hidden details about you or your phone. No account,
 A scanner sees your most private papers: passport copies for a visa or a rental, bank letters, tax forms, payslips,
 contracts, prescriptions and test results. Most scanner apps upload them to read the text. Flatbed can't: the web app
 blocks every network connection and the Android app has no internet permission. And the PDF it makes carries only the
-pages: no location, phone model or date from the photos, no author, app name, dates or document IDs in the file.
+pages: no location, phone model or date from the photos, no author, app name, dates or document IDs in the file. (A
+PDF protected with a password must carry an ID: Flatbed makes a random one for that file alone, which links to nothing.)
 
 ## Features
 - **Camera or import:** a live camera view that outlines the page (web app), or the phone's own camera app (Android, so

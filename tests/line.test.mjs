@@ -53,5 +53,8 @@ test('the banner: hidden by default, web only, the agreed words, a same-tab link
   assert.match(bar, /<a id="lineOpen"[^>]*>Open in your browser<\/a>/);
   assert.ok(!/target=/.test(bar), 'opens in the same tab');
   assert.ok(body.indexOf('id="lineBar"') < body.indexOf('<header'), 'at the top');
-  assert.match(readFileSync(new URL('../build.mjs', import.meta.url), 'utf8'), /src\('line\.js'\)/);
+  // and it is in the built page: the banner and the code that shows it (CodeRabbit, PR #5)
+  const page = readFileSync(new URL('../dist/index.html', import.meta.url), 'utf8');
+  assert.ok(page.includes(bar), 'the banner is in the built page');
+  assert.ok(page.includes(code.trim()), 'line.js is in the built page, unchanged');
 });

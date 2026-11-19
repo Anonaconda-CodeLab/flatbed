@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createDecipheriv } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
@@ -18,8 +19,8 @@ load('../src/encrypt.js');
 await import('../src/pdf.js');
 const { PDFLib, UnmarkedClean: C, FlatbedPdf: P, FlatbedEncrypt: E } = globalThis;
 const hexOf = h => Uint8Array.from(Buffer.from(h, 'hex'));
-const has = cmd => { try { execFileSync(cmd, ['--version'], { stdio: 'ignore' }); return true; } catch { return false; } };
-const QPDF = has('qpdf'), POPPLER = has('pdftotext');
+const has = (cmd, flag) => { try { execFileSync(cmd, [flag], { stdio: 'ignore' }); return true; } catch { return false; } };
+const QPDF = has('qpdf', '--version'), POPPLER = has('pdftotext', '-v');   // pdftotext knows -v, not --version (CodeRabbit, PR #5)
 const dir = mkdtempSync(join(tmpdir(), 'flatbed-enc-'));
 const put = (name, bytes) => { const f = join(dir, name); writeFileSync(f, bytes); return f; };
 const run = (cmd, args) => { try { return { ok: true, out: execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }; } catch (e) { return { ok: false, out: String(e.stderr || e.message) }; } };
@@ -49,8 +50,9 @@ test('key derivation matches qpdf (ISO 32000-2 Algorithm 2.B), English and Thai 
 const passwords = {
   'a plain one': 'correct horse battery staple',
   'Thai, with sara am (typed as one character)': 'รหัสผ่านสำคัญ',
+  'short Thai with sara am (also read with Poppler)': 'ลับสำคัญ',
   'one character': 'x',
-  'longer than 127 bytes (only the first 127 count, as in every reader)': 'ภาษาไทย-'.repeat(30),
+  'the longest allowed (127 bytes: 42 Thai letters and a space)': 'ก'.repeat(42) + ' ',
   'with symbols and spaces': ' ¡Hola! Ünïcødé & 中文 (100%) ',
 };
 for (const [what, pw] of Object.entries(passwords)) {
@@ -70,7 +72,9 @@ for (const [what, pw] of Object.entries(passwords)) {
       if (wrong === pw) continue;
       assert.ok(!run('qpdf', ['--check', '--password=' + wrong, f]).ok, `wrong password "${wrong}" refused`);
     }
-    if (POPPLER) assert.equal(run('pdftotext', ['-upw', pw, f, '-']).out, plainText, 'the same text as the unprotected PDF');
+    // pdftotext's -upw takes at most 32 bytes (a fixed buffer in the command, not Poppler itself), so longer ones are
+    // left to qpdf above
+    if (POPPLER && Buffer.byteLength(pw) <= 32) assert.equal(run('pdftotext', ['-upw', pw, f, '-']).out, plainText, 'the same text as the unprotected PDF');
   });
 }
 
@@ -93,16 +97,31 @@ test('nothing readable is left in the protected file: text, pictures and metadat
   assert.match(s, /\/V 5/); assert.match(s, /\/R 6/); assert.match(s, /\/CFM \/AESV3/); assert.match(s, /\/P -4/);
 });
 
-test('only the first 127 bytes of a password count (the PDF standard); the app refuses longer ones', async t => {
+// The standard says readers use the first 127 bytes; qpdf does, but Chrome (PDFium) hashes the whole password, so a
+// longer one would open in some readers and not others. The app refuses it.
+test('over 127 bytes readers disagree, so the app refuses longer passwords', async t => {
   if (!QPDF) return t.skip('qpdf not installed');
   const long = 'ภาษาไทย-'.repeat(30), f = put('l.pdf', await E.encrypt(clean, long, { PDFLib }));
   assert.ok(run('qpdf', ['--check', '--password=' + long.slice(0, -5) + 'xxxxx', f]).ok, 'a different ending still opens it');
   assert.match(file('../src/app.js').toString(), /passwordBytes\(pw\)\.length < new TextEncoder\(\)\.encode\(pw\)\.length/, 'the app checks for it');
 });
 
-test('every PDF gets its own key: two protections of the same file differ', async () => {
+// the file key, recovered the way a reader does: /UE decrypted with the key-salt hash of the password (AES-256-CBC,
+// zero IV, no padding), and checked by opening /Perms with it
+async function fileKey(pdf, pw) {
+  const s = Buffer.from(pdf).toString('latin1'), val = k => hexOf(new RegExp(`/${k} <([0-9a-fA-F]+)>`).exec(s)[1]);
+  const U = val('U'), UE = val('UE'), Perms = val('Perms');
+  const dec = (key, data) => { const d = createDecipheriv(key.length === 32 ? 'aes-256-cbc' : 'aes-128-cbc', key, Buffer.alloc(16)); d.setAutoPadding(false); return Buffer.concat([d.update(data), d.final()]); };
+  const key = dec(await E.hash2B(E.passwordBytes(pw), U.subarray(40, 48)), UE);
+  assert.equal(dec(key, Perms).subarray(9, 12).toString('latin1'), 'adb', '/Perms opens with the recovered key');
+  return key;
+}
+test('every PDF gets its own key: two protections of the same file differ (CodeRabbit, PR #5)', async () => {
   const a = await E.encrypt(clean, 'same', { PDFLib }), b = await E.encrypt(clean, 'same', { PDFLib });
   assert.notDeepEqual(Buffer.from(a), Buffer.from(b));
+  const ka = await fileKey(a, 'same'), kb = await fileKey(b, 'same');
+  assert.equal(ka.length, 32);
+  assert.notDeepEqual(ka, kb, 'a new random file key each time');
 });
 
 test('no password, no protection: an empty password is refused', async () => {

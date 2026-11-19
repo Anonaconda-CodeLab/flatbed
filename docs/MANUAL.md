@@ -108,8 +108,8 @@ twice. It works for **Save PDF** and **Share PDF instead**, and the finished scr
   a long phrase is best. Send the password another way than the PDF (tell it in person, or in a different app).
 - **No limits on printing or copying.** Once someone opens the PDF with the password, they can print it and copy its
   text. PDF "permissions" that try to stop that are ignored by many readers, so Flatbed doesn't pretend.
-- **Length.** PDF readers use at most the first 127 bytes of a password: about 127 English letters or 40 Thai ones.
-  Flatbed asks for a shorter one if yours is longer, so every character you type counts.
+- **Length.** A PDF password can be at most 127 bytes: about 127 English letters or 40 Thai ones. Readers treat a
+  longer one differently (some ignore the rest, Chrome refuses it), so Flatbed asks for a shorter one.
 - **Thai and other scripts** work in Chrome, Android's viewer and Firefox. Adobe Acrobat changes a few characters
   before checking a password (Thai sara am "ำ" is one), so a password with them may not open in Acrobat; to be safe
   there, use letters and digits without sara am.
