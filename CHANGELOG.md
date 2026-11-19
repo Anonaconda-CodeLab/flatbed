@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.4
+- **Protect with a password:** a new option on the options screen. The PDF then asks for the password before it
+  opens (AES-256, the strongest encryption PDF has, which Chrome, Firefox, Android's viewer, Acrobat and macOS Preview
+  open). Off by default; type the password twice. Flatbed never keeps it: without it nobody can open the PDF, including
+  you. It protects opening only: anyone with the password can print and copy. The recognised text shown after saving
+  (Copy text, Save text) is not protected.
+- In LINE's built-in browser, which can't save or share files, a banner offers to open Flatbed in your own browser.
+- Release checks: the Gradle wrapper is verified before the Android build, the APK's version must match, and a
+  release is refused if its tag already exists; the tests run on Node 20 and 22 (Node 20.12 or later).
+
 ## 1.0.3
 - **Licences:** the licence texts of everything built into Flatbed now ship with it: a **Licences** screen under
   About, and `licences.txt` next to the page (also inside the Android app). Added the notices that were missing:

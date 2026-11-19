@@ -54,7 +54,7 @@ test('two taps: Make PDF opens the options, Save PDF makes and saves it', () => 
   const app = file('src/app.js').toString();
   // the place to save is chosen before the PDF is made (a browser opens its dialog only straight after a tap)
   const run = app.slice(app.indexOf('async function run(share)'), app.indexOf("$('btnMake').onclick"));
-  assert.ok(run.indexOf('await choosePlace(name)') > 0 && run.indexOf('await choosePlace(name)') < run.indexOf('await makePdf(name)'), 'place first, then the PDF');
+  assert.ok(run.indexOf('await choosePlace(name)') > 0 && run.indexOf('await choosePlace(name)') < run.indexOf('await makePdf(name, password)'), 'place first, then the PDF');
   assert.match(run, /if \(!place\) \{ state\.making = false; return; \}/, 'cancelling the save screen makes nothing');
   assert.ok(run.indexOf('state.making = true') < run.indexOf('await choosePlace(name)'), 'busy before the save screen opens');
   assert.match(file('src/native.js').toString(), /async pickSave\(name, mime\)[\s\S]*async writeTo\(uri, bytes\)/);
@@ -132,6 +132,24 @@ test('Licences screen: a list first, every component with its licence, each jump
     assert.ok(screen.includes(`<pre class="licences" translate="no">${esc(file('src/' + f).toString().replace(/\r\n/g, '\n').trim())}</pre>`), f);
   assert.equal((html.match(/<section class="lic" id=/g) || []).length, (html.match(/data-lic="licTop">↑ Back to the list/g) || []).length);
   assert.match(file('src/app.js').toString(), /a\[data-lic\][\s\S]{0,200}scrollIntoView\(\{ block: 'start' \}\);[^\n]*\n\s*t\.focus\(\{ preventScroll: true \}\)/);
+});
+
+test('password: the check runs on the unencrypted PDF, the password goes on last, and is never stored', () => {
+  assert.ok(html.includes('FlatbedEncrypt'), 'the module is in the page');
+  const app = file('src/app.js').toString();
+  const make = app.slice(app.indexOf('async function makePdf(name, password)'), app.indexOf('function showDone('));
+  const iClean = make.indexOf('await C.clean(raw'), iCheck = make.indexOf('await C.inspect(clean'), iEnc = make.indexOf('await E.encrypt(clean, password');
+  assert.ok(iClean > 0 && iCheck > iClean && iEnc > iCheck, 'clean, then check, then encrypt');
+  assert.match(make, /const bytes = password \? await E\.encrypt\(clean, password, \{ PDFLib: PDF \}\) : clean;/, 'no password: exactly the cleaned PDF, as in 1.0.3');
+  // the password is read from the field when making, and only there; settings never hold it
+  assert.ok(!/opts\.(pw|password)/.test(app), 'not in the saved options');
+  assert.equal((app.match(/\$\('pw1'\)\.value/g) || []).length, 4, 'read in four places only: the check, the length, making, and clearing');
+  assert.match(app, /if \(state\.result\.protected\) clearPw\(\);/, 'cleared once the PDF is made');
+  // the fields: off by default, two fields that must match, the warning, no autofill or spellcheck
+  assert.match(html, /<input type="checkbox" id="optPassword">/);
+  for (const id of ['pw1', 'pw2']) assert.match(html, new RegExp(`<input type="password" id="${id}" [^>]*autocomplete="new-password"[^>]*spellcheck="false" translate="no">`), id);
+  assert.match(html, /Without the password nobody can open this PDF, including you\. There is no way to get it back\./);
+  assert.match(html, /id="pwLine" hidden>🔒 Protected with a password/);
 });
 
 test('clean.js is still Unmarked\'s (update tests/clean-origin.json when copying a newer one)', () => {
@@ -224,4 +242,27 @@ test('release workflow: three jobs, key only in the approved signing step, pinne
   }
   assert.ok(!/persist-credentials: true/.test(w));
   assert.equal((w.match(/actions\/checkout@/g) || []).length, (w.match(/persist-credentials: false/g) || []).length);
+});
+
+test('release hardening (as in Still Point 1.0.2 and Remark): wrapper checked, versions match, no stray tags', () => {
+  const w = file('.github/workflows/android.yml').toString();
+  const jobs = Object.fromEntries(w.slice(w.indexOf('\njobs:\n')).split(/\n(?=  [a-z]+:\n)/).slice(1).map(p => [p.trim().split(':')[0], p]));
+  const { build, sign, publish } = jobs;
+  const validate = build.search(/- uses: gradle\/actions\/wrapper-validation@[0-9a-f]{40}/), gradle = build.indexOf('./gradlew --no-daemon assembleRelease');
+  assert.ok(validate >= 0 && gradle > validate, 'the Gradle wrapper is validated before gradlew runs');
+  assert.match(build, /PIPESTATUS\[0\][\s\S]*::error title=Android build failed::/, 'a failed build says why on the run page');
+  assert.match(sign, /APKVER=\$\("\$BT\/aapt2" dump badging "\$APK"[\s\S]*if \[ "\$APKVER" != "\$VER" \]; then[\s\S]*exit 1;/, 'the APK version is checked');
+  const rel = publish.indexOf('Publish the official release'), tagCheck = publish.indexOf('gh api --include "repos/$GH_REPO/git/ref/tags/$TAG"'), create = publish.indexOf('gh release create "$TAG"');
+  assert.ok(rel < tagCheck && tagCheck < create, 'a tag left without its release is checked before the release is made');
+  assert.match(publish, /Tag \$TAG already exists without a release[\s\S]*?exit 1[\s\S]*?HTTP\/\[0-9\.\]\+ 404[\s\S]*?exit 1/, 'and an unclear answer stops the run too');
+  assert.ok(!/\|\| true/.test(publish), 'no errors ignored when publishing');
+  assert.match(publish, /clear_prerelease\(\) \{[\s\S]*release not found[\s\S]*HTTP 404[\s\S]*\}\n\s*clear_prerelease android-test\n/);
+  assert.match(publish, /gh release create android-test [^\n]*--prerelease --latest=false/, 'a test build never becomes the latest release');
+  assert.ok(!/android-preview/.test(w), 'Flatbed has no preview release');
+  const ci = file('.github/workflows/ci.yml').toString();
+  assert.match(ci, /node: \[20, 22\]/);
+  assert.match(ci, /install -y --no-install-recommends poppler-utils qpdf/, 'qpdf runs the password tests in CI');
+  assert.match(ci, /git status --porcelain --untracked-files=all\)/, 'CI catches new or changed files left by the build');
+  assert.equal(JSON.parse(file('package.json')).engines.node, '>=20.12');
+  assert.match(file('README.md').toString(), /The code is written with Claude \(every commit says so\); the owner designs and tests the app\./);
 });

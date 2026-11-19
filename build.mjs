@@ -152,7 +152,8 @@ const pdfLib = src('vendor/pdf-lib.min.js').replace(/\n?\/\/# sourceMappingURL=\
 const noClose = (name, s) => { if (/<\/script/i.test(s)) throw new Error(name + ' contains a closing script tag'); return s; };
 noClose('pdf-lib', pdfLib);
 const settings = `const FLATBED = ${JSON.stringify({ languages: PROJECT.languages, font: b64('vendor/glyphless.ttf') })};`;
-const appJs = noClose('app', `${settings}\n${src('scan.js')}\n${src('clean.js')}\n${src('pdf.js')}\n${src('ocr.js')}\n${fill(src('native.js'))}\n${fill(src('app.js'))}`);
+const appJs = noClose('app', `${settings}\n${src('scan.js')}\n${src('clean.js')}\n${src('pdf.js')}\n${src('encrypt.js')}\n${src('ocr.js')}\n${fill(src('native.js'))}\n${fill(src('app.js'))}
+${src('line.js')}`);
 // the two workers: their code sits in the page as plain text and is started from a blob: address (no download)
 const workJs = noClose('page worker', `${src('scan.js')}\n${src('work.js')}`);
 const ocrJs = noClose('text recognition', `${src('vendor/tesseract-core-simd-lstm.js').replace(/\n?\/\/# sourceMappingURL=\S*\s*$/, '')}\n${src('ocr-engine.js')}`);

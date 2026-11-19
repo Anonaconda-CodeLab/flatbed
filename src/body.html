@@ -1,5 +1,9 @@
 <!-- Copyright (C) 2026 Anonaconda Code Lab · SPDX-License-Identifier: GPL-3.0-or-later -->
 <main id="app">
+  <div id="lineBar" class="line-bar web-only" role="note" hidden>
+    <span>LINE's built-in browser can't save or share files.</span>
+    <a id="lineOpen" class="btn primary" href="?openExternalBrowser=1">Open in your browser</a>
+  </div>
   <header class="bar">
     <button class="brand" id="btnHome" aria-label="{{APP_NAME}}: start">
       <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="8" fill="var(--accent)"/><path d="M10 6.5h8.5l4.5 4.5v14.5H10z" fill="none" stroke="var(--accent-fg)" stroke-width="2" stroke-linejoin="round"/><path d="M18.5 6.5V11H23" fill="none" stroke="var(--accent-fg)" stroke-width="2" stroke-linejoin="round"/><path d="M6.5 17h19" stroke="var(--accent)" stroke-width="5" stroke-linecap="round"/><path d="M6.5 17h19" stroke="var(--accent-fg)" stroke-width="2.1" stroke-linecap="round"/></svg>
@@ -153,6 +157,15 @@
         <p class="dev-meta" id="ocrNote" hidden></p>
       </div>
       <label class="opt"><span class="opt-lbl">File name</span><input type="text" id="fileName" class="text-in" value="scan.pdf" autocomplete="off" spellcheck="false" translate="no"></label>
+      <div class="opt" id="pwOpt">
+        <label class="check"><input type="checkbox" id="optPassword"><span><b>Protect with a password</b><small>The PDF asks for the password before it opens.</small></span></label>
+        <div class="pw-fields" id="pwFields" hidden>
+          <div class="pw-row"><input type="password" id="pw1" class="text-in" placeholder="Password" aria-label="Password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" translate="no"><button type="button" class="btn small" id="pwShow" aria-pressed="false">Show</button></div>
+          <input type="password" id="pw2" class="text-in" placeholder="Type it again" aria-label="Type the password again" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" translate="no">
+          <p class="pw-msg" id="pwMsg" aria-live="polite"></p>
+          <p class="pw-note">Without the password nobody can open this PDF, including you. There is no way to get it back.</p>
+        </div>
+      </div>
     </div>
 
     <div class="actions" id="makeActions">
@@ -164,6 +177,7 @@
     <div class="actions" id="doneActions" hidden>
       <div class="done-hero"><h2 id="doneTitle">Your PDF is ready</h2><p id="doneSub" translate="no"></p></div>
       <p class="checked" id="checkLine"></p>
+      <p class="checked" id="pwLine" hidden>🔒 Protected with a password: it's asked for before the PDF opens.</p>
       <div class="acts-row center-row">
         <button id="btnSave" class="btn">Save</button>
         <button id="btnShare" class="btn" hidden>Share</button>

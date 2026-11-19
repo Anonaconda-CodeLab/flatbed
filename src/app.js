@@ -7,7 +7,7 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const C = window.UnmarkedClean, PDF = window.PDFLib, P = window.FlatbedPdf;
+  const C = window.UnmarkedClean, PDF = window.PDFLib, P = window.FlatbedPdf, E = window.FlatbedEncrypt;
   const MAX_PAGES = 60, MAX_BYTES = 60 * 1024 * 1024;
   const THUMB = 900, EXPORT = 3000;   // longest side in pixels: page previews, and the PDF (about 250 dpi on A4)
   const state = { pages: [], seq: 0, edit: null, result: null, making: false };
@@ -436,6 +436,7 @@
     $('ocrNote').hidden = ocrOk;
     $('ocrNote').textContent = ocrOk ? '' : 'This browser can\'t run the text recognition. Update it, or use a current Chrome, Firefox or Safari.';
     if (!ocrOk) $('langOpt').hidden = false;
+    syncPw();
   }
   for (const b of document.querySelectorAll('#sizeChips .chip-btn')) b.onclick = () => { opts.size = b.dataset.size; saveOpts(); syncOpts(); clearResult(); };
   $('optSearchable').onchange = $('optImageOnly').onchange = () => { opts.text = $('optSearchable').checked; saveOpts(); syncOpts(); clearResult(); };
@@ -446,6 +447,33 @@
     saveOpts(); syncOpts(); clearResult();
   };
   $('fileName').addEventListener('input', clearResult);
+
+  // ---------- password (optional): only ever in the two fields, never in settings or kept after the PDF is made ----------
+  // Returns '' when the PDF can be made (no password, or two matching ones), otherwise what to fix.
+  function pwProblem() {
+    if (!$('optPassword').checked) return '';
+    const pw = $('pw1').value, again = $('pw2').value;
+    if (!pw) return 'Type a password.';
+    if (E.passwordBytes(pw).length < new TextEncoder().encode(pw).length) return 'Too long: PDF readers only use the first 127 bytes (about 40 Thai or 127 English letters). Use a shorter one.';
+    if (!again) return 'Type it again below.';
+    if (pw !== again) return 'The two passwords don\'t match.';
+    return '';
+  }
+  function syncPw() {
+    const on = $('optPassword').checked, problem = pwProblem();
+    $('pwFields').hidden = !on;
+    // say what's wrong only once something was typed (the empty fields speak for themselves)
+    $('pwMsg').textContent = on && ($('pw1').value || $('pw2').value) ? problem : '';
+    if (!state.making) $('btnMake').disabled = $('btnMakeShare').disabled = !!problem;
+  }
+  $('optPassword').onchange = () => { syncPw(); clearResult(); privacyList(); if ($('optPassword').checked) $('pw1').focus(); };
+  for (const id of ['pw1', 'pw2']) $(id).addEventListener('input', () => { syncPw(); clearResult(); });
+  $('pwShow').onclick = () => {
+    const show = $('pw1').type === 'password';
+    $('pw1').type = $('pw2').type = show ? 'text' : 'password';
+    $('pwShow').textContent = show ? 'Hide' : 'Show'; $('pwShow').setAttribute('aria-pressed', String(show));
+  };
+  const clearPw = () => { $('pw1').value = $('pw2').value = ''; syncPw(); };
 
   // what the PDF leaves out, in plain words
   function privacyList() {
@@ -458,7 +486,9 @@
         ? li('Hidden data in your photos', `${esc(labels.slice(0, 6).join(', '))}${labels.length > 6 ? ` and ${labels.length - 6} more` : ''}, in ${plural(photos.length, 'photo')}. None of it goes into the PDF.`)
         : li('Hidden data in your photos', 'None was found, and none is added. The pages are redrawn, so nothing from the photo files is copied.'),
       li('No author, app name or dates', 'The PDF has no title, author, app name, or creation and change dates.'),
-      li('No document ID', 'Nothing that could link this PDF to other files, to this app or to your phone.'),
+      $('optPassword').checked
+        ? li('No document ID that links anything', 'A password-protected PDF must carry an ID: Flatbed makes a random one for this file alone, so nothing links it to other files, this app or your phone.')
+        : li('No document ID', 'Nothing that could link this PDF to other files, to this app or to your phone.'),
       cropped ? li('The surroundings', 'Only the page is kept: the table, your hands and the room around it are cut away.') : '',
       li('Your own file name', 'Camera names such as IMG_20261025_091233.jpg, which give away the date and time, aren\'t used.')
     ].join('');
@@ -501,7 +531,7 @@
   // recognition) takes seconds. So the place is chosen first, then the PDF is made and written there. Browsers
   // without a dialog save to their Downloads folder once it's made. Sharing from a browser needs one more tap on the
   // finished screen; the Android app opens its share sheet straight away.
-  async function makePdf(name) {
+  async function makePdf(name, password) {
     const hint = $('makeHint'), n = state.pages.length, text = opts.text && ocrOk, langs = opts.langs.slice();
     const pages = [], texts = [];
     for (const [i, pg] of state.pages.entries()) {
@@ -531,8 +561,11 @@
     const clean = (await C.clean(raw, { pdfLib: PDF })).bytes;
     const check = await C.inspect(clean, { pdfLib: PDF });
     const left = check.error ? null : check.findings.filter(f => C.isRemoved(f, {}));
-    state.result = { bytes: clean, name, text: texts.map((t, i) => n > 1 ? `--- Page ${i + 1} ---\n${t}` : t).join('\n\n').trim(), hasText: text };
-    $('doneSub').textContent = `${name} · ${plural(n, 'page')} · ${size(clean.length)}`;
+    // last: the password (the cleaner and the check above can't read an encrypted file)
+    const bytes = password ? await E.encrypt(clean, password, { PDFLib: PDF }) : clean;
+    state.result = { bytes, name, protected: !!password, text: texts.map((t, i) => n > 1 ? `--- Page ${i + 1} ---\n${t}` : t).join('\n\n').trim(), hasText: text };
+    $('doneSub').textContent = `${name} · ${plural(n, 'page')} · ${size(bytes.length)}`;
+    $('pwLine').hidden = !password;
     $('checkLine').textContent = !left ? '' : left.length ? `Please check: still found ${left.map(f => f.label).join(', ')}.` : '✓ Checked: no hidden data in the PDF.';
     $('checkLine').classList.toggle('warn', !!(left && left.length));
     $('btnShare').hidden = !canShare();
@@ -562,8 +595,9 @@
     r.saved = true;
   }
   async function run(share) {
-    if (state.making || !state.pages.length) return;
+    if (state.making || !state.pages.length || pwProblem()) return;
     const btn = $('btnMake'), hint = $('makeHint'), name = pdfName();
+    let password = $('optPassword').checked ? $('pw1').value : '';
     state.making = true;   // before the save screen opens, so a second tap can't start another one
     let place = null;
     if (!share) {
@@ -574,7 +608,9 @@
     btn.disabled = true; $('btnMakeShare').disabled = true; $('optCard').classList.add('disabled'); $('exportBackRow').hidden = true;
     for (const el of $('optCard').querySelectorAll('button, input')) el.disabled = true;
     try {
-      await makePdf(name);
+      await makePdf(name, password);
+      password = '';
+      if (state.result.protected) clearPw();   // not kept once the PDF is made
       countUse();
       const r = state.result, pages = plural(state.pages.length, 'page');
       if (share) {

@@ -66,5 +66,6 @@ share; Anonaconda Code Lab accepts no liability for any loss or harm from using 
 
 ## Licence
 Free software under the [GNU General Public License v3 or later](LICENSE), with no warranty. © 2026 Anonaconda Code Lab.
+The code is written with Claude (every commit says so); the owner designs and tests the app.
 Third-party components: see [NOTICE.md](NOTICE.md). Security and privacy: see [SECURITY.md](SECURITY.md).
 Questions or problems: hello@anonacondacodelab.com.

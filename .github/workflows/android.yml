@@ -48,6 +48,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c   # v6.4.1 · gradle-wrapper.jar must be an official Gradle release before gradlew runs
       - name: Version
         id: ver
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
@@ -60,7 +61,15 @@ jobs:
         run: npm ci && npx cap sync android
       - name: Build the APK (unsigned)
         working-directory: mobile/android
-        run: chmod +x gradlew && ./gradlew --no-daemon assembleRelease
+        run: |
+          chmod +x gradlew
+          set +e; ./gradlew --no-daemon assembleRelease 2>&1 | tee "$RUNNER_TEMP/gradle.log"; status=${PIPESTATUS[0]}; set -e
+          if [ "$status" != 0 ]; then
+            # show the reason as an annotation on the run page
+            msg=$(grep -E -A4 "error:|What went wrong|Lint found" "$RUNNER_TEMP/gradle.log" | head -60 | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+            echo "::error title=Android build failed::$msg"
+            exit "$status"
+          fi
       - name: Find it
         run: |
           APK=mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
@@ -114,6 +123,8 @@ jobs:
           "$BT/aapt2" dump permissions "$APK" | tee perms.txt
           if grep -q "android.permission.INTERNET" perms.txt; then echo "::error::INTERNET permission found"; exit 1; fi
           if grep -q "android.permission.CAMERA" perms.txt; then echo "::error::CAMERA permission found"; exit 1; fi
+          APKVER=$("$BT/aapt2" dump badging "$APK" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+          if [ "$APKVER" != "$VER" ]; then echo "::error::APK versionName $APKVER differs from package.json version $VER"; exit 1; fi
           "$BT/apksigner" verify --min-sdk-version 24 "$APK"
           CERT=$("$BT/apksigner" verify --print-certs "$APK" | grep -i "certificate SHA-256 digest" | head -1 | sed 's/.*: //' | tr 'a-f' 'A-F' | sed 's/../&:/g; s/:$//')
           echo "Signing certificate SHA-256: $CERT"
@@ -151,6 +162,14 @@ jobs:
           if [ "$GITHUB_REF" != refs/heads/main ]; then echo "::error::Official releases are made from main only"; exit 1; fi
           TAG="v$VER"
           if gh release view "$TAG" >/dev/null 2>&1; then echo "::error::Release $TAG already exists; raise the version first"; exit 1; fi
+          # a tag left behind without its release: gh release create would attach to that old commit instead
+          if response=$(gh api --include "repos/$GH_REPO/git/ref/tags/$TAG" 2>/dev/null); then
+            echo "::error::Tag $TAG already exists without a release; delete it or raise the version first"
+            exit 1
+          elif ! printf '%s\n' "$response" | grep -qE '^HTTP/[0-9.]+ 404([[:space:]]|$)'; then
+            echo "::error::Could not determine whether tag $TAG exists"
+            exit 1
+          fi
           F="Flatbed-$VER.apk"; SUM=$(sha256sum "$F" | cut -d' ' -f1); echo "$SUM  $F" > "$F.sha256"
           { awk -v v="## $VER" '$0==v{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md
             echo; echo "## Download and check"
@@ -162,7 +181,15 @@ jobs:
       - name: Publish as the android-test pre-release
         if: ${{ !inputs.release }}
         run: |
-          gh release delete android-test --yes --cleanup-tag || true
-          gh release create android-test "Flatbed-$VER.apk" --prerelease --target "$GITHUB_SHA" \
+          # the previous test build goes first; anything other than "not found" stops the run instead of being ignored
+          clear_prerelease() {
+            if out=$(gh release view "$1" --json tagName 2>&1); then gh release delete "$1" --yes
+            elif ! grep -qi 'release not found\|HTTP 404' <<<"$out"; then echo "::error::Could not check the old $1 release: $out"; exit 1; fi
+            if out=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$1" 2>&1); then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$1" --silent
+            elif ! grep -q 'HTTP 404' <<<"$out"; then echo "::error::Could not check the old $1 tag: $out"; exit 1; fi
+          }
+          clear_prerelease android-test
+          gh release create android-test "Flatbed-$VER.apk" --prerelease --latest=false --target "$GITHUB_SHA" \
             --title "Android test build $VER (build ${{ github.run_number }})" \
             --notes "Test build of the Android app, made automatically from commit ${GITHUB_SHA::7}. Install over the previous test build."

@@ -88,6 +88,8 @@ a.btn.coffee{background:#72a4f2;border-color:#5a8fe0;color:#10213f}
 .donate .acts{display:flex;gap:8px;flex-wrap:wrap}
 .thanks{color:var(--muted);font-size:14px;line-height:1.5;margin:4px 4px 6px;text-align:center}
 .thanks a{color:var(--fg);font-weight:500;text-underline-offset:3px}
+.line-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:8px 12px 0;padding:10px 12px;border-radius:12px;background:var(--accent-soft);color:var(--fg);font-size:14px}
+.line-bar .btn{flex:none;text-decoration:none}
 html:not(.native) .native-only{display:none}
 html.native .web-only{display:none}
 .app-link{margin:0;font-size:14px}
@@ -217,3 +219,9 @@ html.native .web-only{display:none}
 .lic h3{font-size:15px;margin:0 0 8px;line-height:1.4}
 .lic-top{display:inline-block;margin-top:8px;font-size:14px;color:var(--muted)}
 .lic:focus,.lic-toc:focus{outline:none}
+.pw-fields{display:grid;gap:8px;margin-top:10px}
+.pw-row{display:flex;gap:8px;align-items:center}
+.pw-row .text-in{flex:1;min-width:0}
+.pw-msg{margin:0;font-size:13px;color:var(--med)}
+.pw-msg:empty{display:none}
+.pw-note{margin:0;font-size:12.5px;color:var(--muted);line-height:1.4}

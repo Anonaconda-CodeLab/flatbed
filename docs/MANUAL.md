@@ -98,6 +98,24 @@ built in. Choosing the right language matters: it is how Flatbed knows which let
 **File name.** The PDF is called `scan.pdf` unless you choose another name. Camera file names such as
 `IMG_20261025_091233.jpg`, which give away the date and time, are never used.
 
+**Protect with a password.** Tick it to make a PDF that asks for a password before it opens, then type the password
+twice. It works for **Save PDF** and **Share PDF instead**, and the finished screen says *Protected with a password*.
+
+- **Write the password down somewhere safe.** Without it nobody can open the PDF, including you: there is no way to get
+  it back. Flatbed never stores it. It isn't saved with your settings, and the fields are emptied once the PDF is made.
+- **How strong is it?** The PDF is encrypted with AES-256, the standard every current PDF reader opens: Chrome and other
+  browsers, Android's PDF viewer, Adobe Acrobat and macOS Preview. The protection is only as strong as the password:
+  a long phrase is best. Send the password another way than the PDF (tell it in person, or in a different app).
+- **No limits on printing or copying.** Once someone opens the PDF with the password, they can print it and copy its
+  text. PDF "permissions" that try to stop that are ignored by many readers, so Flatbed doesn't pretend.
+- **Length.** PDF readers use at most the first 127 bytes of a password: about 127 English letters or 40 Thai ones.
+  Flatbed asks for a shorter one if yours is longer, so every character you type counts.
+- **Thai and other scripts** work in Chrome, Android's viewer and Firefox. Adobe Acrobat changes a few characters
+  before checking a password (Thai sara am "ำ" is one), so a password with them may not open in Acrobat; to be safe
+  there, use letters and digits without sara am.
+- **The recognised text in Flatbed isn't protected.** The text Flatbed shows after making the PDF, and **Copy text** or
+  **Save text**, are plain text on your own screen. Only the PDF has the password.
+
 ### Reading text: what to expect
 
 Clear, printed text on a flat, well-lit page is usually read almost perfectly. Results are weaker for small print
@@ -115,7 +133,8 @@ Before you make a PDF, Flatbed shows a **Private by default** panel listing what
   Unmarked, our app for cleaning photos and PDFs). Flatbed lists what your photos carried, and leaves all of it out: each
   page is redrawn from the picture alone, so nothing from the photo file is copied.
 - **No author, app name or dates.** The PDF has no title, author, app name, or creation and change dates.
-- **No document ID.** Nothing that could link the PDF to other files, to this app or to your phone.
+- **No document ID.** Nothing that could link the PDF to other files, to this app or to your phone. (A PDF with a
+  password must carry an ID; Flatbed makes a random one for that file alone, which links to nothing.)
 - **The surroundings.** Only the page is kept; the table, your hands and the room are cut away.
 
 Every PDF is also put through the same cleaner as Unmarked and **checked** before you can save it. The result appears

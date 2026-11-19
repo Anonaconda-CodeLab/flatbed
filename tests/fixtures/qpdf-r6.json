@@ -1,0 +1,23 @@
+{
+ "made": "qpdf 11.9.0: qpdf --encrypt PASSWORD owner-PASSWORD 256 on an empty PDF",
+ "cases": [
+  {
+   "password": "secret",
+   "U": "0eb301df67f13ca32d110caa7266b01bc847b94e5fc89ea823a5ec8a7662c118e60faca8e98fc40325cd2e9d40f856be",
+   "UE": "2d49f411b9d3b9b49fb7c69d0f8f56fb6f104d6f4de4861f4d13da05ece3dd11",
+   "key": "f9ac5f11d4584cdbff8909dbfe7c47e286453fdfbd7c77390b76a8735c99f363"
+  },
+  {
+   "password": "รหัสผ่านลับ",
+   "U": "279c77d16685a09dca37e50962f335b61e62bd28696a839fb8cf01f792e8cb09972c1610b40daf5df25daa6c9e5fc784",
+   "UE": "c1380830fbe7a41316e7606ea0fe54aad629262f2b8039e179f7b5d32431581f",
+   "key": "29beb683b22bdcb2dce9ae0c33272e24c4a03cc8e5ef55870d1cddddb148f999"
+  },
+  {
+   "password": "x",
+   "U": "4ef7374f8df51357f84ab881a14d107acca384719c603f78d19d1ccd6f8d8916b412bc600f1db63b1b39e7371b633372",
+   "UE": "dd0df85b162d3393c2df4a9713ff52c57863dec71eb70a2d0b4f3abd5ca1efe4",
+   "key": "58020e27d880dbdb749e076c506e8d7105169fdaa876af3d6ae18c99830429d6"
+  }
+ ]
+}
