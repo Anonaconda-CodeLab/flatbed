@@ -454,7 +454,7 @@
     if (!$('optPassword').checked) return '';
     const pw = $('pw1').value, again = $('pw2').value;
     if (!pw) return 'Type a password.';
-    if (E.passwordBytes(pw).length < new TextEncoder().encode(pw).length) return 'Too long: a PDF password can be at most 127 bytes (about 40 Thai or 127 English letters). Use a shorter one.';
+    if (E.tooLong(pw)) return 'Too long: a PDF password can be at most 127 bytes (about 40 Thai or 127 English letters). Use a shorter one.';
     if (!again) return 'Type it again below.';
     if (pw !== again) return 'The two passwords don\'t match.';
     return '';

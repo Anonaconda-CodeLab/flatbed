@@ -9,14 +9,15 @@
    metadata). All permissions are granted (printing, copying): readers may ignore those flags, so they would only give a
    false sense of protection. The owner password is random and kept nowhere.
 
-   The password is used as the UTF-8 bytes of what was typed (at most 127 bytes), without SASLprep: Chrome, Android's
+   The password is used as the UTF-8 bytes of what was typed (at most 127 bytes; longer ones are refused), without SASLprep: Chrome, Android's
    viewer, Firefox and qpdf use the typed bytes, so a password with characters that SASLprep changes (Thai sara am,
    full-width letters) still opens there. Adobe Acrobat applies SASLprep, so such a password may not open in Acrobat.
 
    API (global FlatbedEncrypt):
      encrypt(bytes, password, { PDFLib })  -> Promise<Uint8Array>   the protected PDF
      hash2B(password, salt, udata)         -> Promise<Uint8Array>   ISO 32000-2 Algorithm 2.B (for tests)
-     passwordBytes(password)               -> Uint8Array            UTF-8, first 127 bytes */
+     passwordBytes(password)               -> Uint8Array            UTF-8, first 127 bytes
+     tooLong(password)                     -> boolean               over 127 bytes (refused) */
 (function (root) {
   'use strict';
 
@@ -28,6 +29,8 @@
     return out;
   };
   const passwordBytes = pw => new TextEncoder().encode(String(pw)).slice(0, 127);
+  // over 127 bytes, readers disagree (qpdf ignores the rest, Chrome refuses the password), so such a password is refused
+  const tooLong = pw => new TextEncoder().encode(String(pw)).length > 127;
 
   // AES-CBC without padding (the input is a whole number of blocks): WebCrypto always pads, so the extra block is dropped
   async function aesNoPad(key, iv, data) {
@@ -77,6 +80,7 @@
   async function encrypt(bytes, password, { PDFLib: L }) {
     const pw = passwordBytes(password);
     if (!pw.length) throw new Error('No password');
+    if (tooLong(password)) throw new Error('Password longer than 127 bytes');
     const doc = await L.PDFDocument.load(bytes, { updateMetadata: false });
     const ctx = doc.context;
     const v = await securityValues(pw);
@@ -127,7 +131,7 @@
     return doc.save({ useObjectStreams: false, addDefaultPage: false, updateFieldAppearances: false });
   }
 
-  const api = { encrypt, hash2B, passwordBytes };
+  const api = { encrypt, hash2B, passwordBytes, tooLong };
   root.FlatbedEncrypt = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

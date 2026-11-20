@@ -99,11 +99,16 @@ test('nothing readable is left in the protected file: text, pictures and metadat
 
 // The standard says readers use the first 127 bytes; qpdf does, but Chrome (PDFium) hashes the whole password, so a
 // longer one would open in some readers and not others. The app refuses it.
-test('over 127 bytes readers disagree, so the app refuses longer passwords', async t => {
-  if (!QPDF) return t.skip('qpdf not installed');
-  const long = 'ภาษาไทย-'.repeat(30), f = put('l.pdf', await E.encrypt(clean, long, { PDFLib }));
-  assert.ok(run('qpdf', ['--check', '--password=' + long.slice(0, -5) + 'xxxxx', f]).ok, 'a different ending still opens it');
-  assert.match(file('../src/app.js').toString(), /passwordBytes\(pw\)\.length < new TextEncoder\(\)\.encode\(pw\)\.length/, 'the app checks for it');
+test('over 127 bytes readers disagree, so longer passwords are refused (CodeRabbit, PR #5)', async () => {
+  for (const ok of ['a'.repeat(127), 'ก'.repeat(42) + ' ']) assert.equal(E.tooLong(ok), false, `${Buffer.byteLength(ok)} bytes allowed`);
+  for (const bad of ['a'.repeat(128), 'ก'.repeat(43), 'ภาษาไทย-'.repeat(30)]) {
+    assert.equal(E.tooLong(bad), true, `${Buffer.byteLength(bad)} bytes refused`);
+    await assert.rejects(E.encrypt(clean, bad, { PDFLib }), /longer than 127 bytes/, 'and no PDF is made with it');
+  }
+  await E.encrypt(clean, 'a'.repeat(127), { PDFLib });   // the longest allowed is made
+  // the options screen uses the same check, before the PDF is made
+  const app = file('../src/app.js').toString(), check = app.slice(app.indexOf('function pwProblem()'), app.indexOf('function syncPw()'));
+  assert.match(check, /if \(E\.tooLong\(pw\)\) return 'Too long: a PDF password can be at most 127 bytes/);
 });
 
 // the file key, recovered the way a reader does: /UE decrypted with the key-salt hash of the password (AES-256-CBC,
